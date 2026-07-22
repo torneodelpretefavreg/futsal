@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Gestione Futsal — A.S.D. Futsal Fabbrico</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<style>
+:root{
+  --ink:#0E1A18;
+  --court:#0F3D3A;
+  --court-2:#154F4A;
+  --bg:#F4F6F4;
+  --card:#FFFFFF;
+  --line:#DFE6E2;
+  --muted:#6B7A75;
+  --mint:#2E9E82;
+  --mint-soft:#E4F3EE;
+  --coral:#C9503F;
+  --coral-soft:#FBE9E6;
+  --amber:#C98A1E;
+  --amber-soft:#FBF0DC;
+  --radius:10px;
+  --shadow:0 1px 2px rgba(14,26,24,.05), 0 8px 24px -12px rgba(14,26,24,.18);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg);color:var(--ink);
+  font-family:'Inter',system-ui,-apple-system,sans-serif;
+  font-size:14px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,h4{font-family:'Archivo',system-ui,sans-serif;margin:0;letter-spacing:-.01em}
+.mono{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}
+
+/* ---------- layout ---------- */
+.shell{max-width:1180px;margin:0 auto;padding:0 16px 80px}
+.topbar{
+  background:var(--court);color:#fff;
+  position:relative;overflow:hidden;
+}
+/* riga di centrocampo: linea + cerchio, motivo del campo */
+.topbar::after{
+  content:"";position:absolute;right:-60px;top:50%;transform:translateY(-50%);
+  width:220px;height:220px;border:2px solid rgba(255,255,255,.10);border-radius:50%;
+}
+.topbar::before{
+  content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:rgba(255,255,255,.18);
+}
+.topbar-in{max-width:1180px;margin:0 auto;padding:18px 16px 0;position:relative;z-index:1}
+.brand{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.brand h1{font-size:22px;font-weight:800;text-transform:uppercase;letter-spacing:.02em}
+.brand span{font-size:12px;color:rgba(255,255,255,.6);letter-spacing:.12em;text-transform:uppercase}
+.userbar{position:absolute;right:16px;top:18px;display:flex;align-items:center;gap:10px;font-size:12px;color:rgba(255,255,255,.7);z-index:2}
+.tabs{display:flex;gap:2px;margin-top:16px;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{
+  background:transparent;border:0;color:rgba(255,255,255,.62);
+  font-family:'Archivo';font-weight:600;font-size:13px;letter-spacing:.02em;
+  padding:10px 14px;cursor:pointer;white-space:nowrap;
+  border-bottom:2px solid transparent;
+}
+.tab:hover{color:#fff}
+.tab.on{color:#fff;border-bottom-color:#fff}
+.tab:focus-visible{outline:2px solid #fff;outline-offset:-2px;border-radius:4px}
+
+/* ---------- primitives ---------- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+.card-h{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.card-h h3{font-size:14px;text-transform:uppercase;letter-spacing:.06em}
+.card-b{padding:16px}
+.section{margin-top:22px}
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(2,1fr)}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g4{grid-template-columns:repeat(4,1fr)}
+@media(max-width:900px){.g3,.g4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:620px){.g2,.g3,.g4{grid-template-columns:1fr}}
+
+button{font-family:inherit}
+.btn{
+  border:1px solid var(--court);background:var(--court);color:#fff;
+  border-radius:8px;padding:8px 14px;font-weight:600;font-size:13px;cursor:pointer;
+  display:inline-flex;align-items:center;gap:6px;
+}
+.btn:hover{background:var(--court-2)}
+.btn.ghost{background:#fff;color:var(--court);border-color:var(--line)}
+.btn.ghost:hover{background:var(--bg)}
+.btn.danger{background:#fff;color:var(--coral);border-color:var(--coral-soft)}
+.btn.danger:hover{background:var(--coral-soft)}
+.btn.sm{padding:5px 9px;font-size:12px;border-radius:6px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+label{display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
+input,select,textarea{
+  width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;
+  font-family:inherit;font-size:14px;background:#fff;color:var(--ink);
+}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--court);box-shadow:0 0 0 3px rgba(15,61,58,.09)}
+.field{margin-bottom:12px}
+.row{display:grid;gap:12px}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{
+  text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);
+  font-weight:600;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;
+}
+td{padding:9px 10px;border-bottom:1px solid #F0F3F1;vertical-align:middle}
+tr:last-child td{border-bottom:0}
+tbody tr:hover{background:#FAFBFA}
+.tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.num{text-align:right;font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}
+
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.02em}
+.p-ok{background:var(--mint-soft);color:#1D6E5A}
+.p-warn{background:var(--amber-soft);color:#8A5C0B}
+.p-bad{background:var(--coral-soft);color:#9C3527}
+.p-neutral{background:#EEF1EF;color:var(--muted)}
+
+/* numero di maglia, il segno distintivo */
+.jersey{
+  font-family:'Archivo';font-weight:800;font-size:19px;line-height:1;
+  color:var(--court);min-width:34px;text-align:center;
+  border:1.5px solid var(--line);border-radius:6px;padding:6px 2px;background:#fff;
+}
+.jersey.dir{font-size:11px;letter-spacing:.06em;color:var(--muted);padding:9px 4px}
+
+.stat{padding:14px 16px}
+.stat .k{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.stat .v{font-family:'Archivo';font-weight:800;font-size:26px;line-height:1.2;margin-top:4px}
+.stat .s{font-size:12px;color:var(--muted);margin-top:2px}
+.v-mint{color:var(--mint)} .v-coral{color:var(--coral)} .v-amber{color:var(--amber)}
+
+.empty{padding:36px 16px;text-align:center;color:var(--muted)}
+.empty strong{display:block;color:var(--ink);font-family:'Archivo';font-size:15px;margin-bottom:4px}
+
+.modal-bg{position:fixed;inset:0;background:rgba(14,26,24,.5);display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;z-index:50}
+.modal{background:#fff;border-radius:12px;width:100%;max-width:640px;box-shadow:0 24px 60px -20px rgba(0,0,0,.4)}
+.modal-h{padding:16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+.modal-b{padding:16px;max-height:70vh;overflow-y:auto}
+.modal-f{padding:14px 16px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px}
+
+.bar{height:6px;background:#EEF1EF;border-radius:99px;overflow:hidden}
+.bar>i{display:block;height:100%;background:var(--mint);border-radius:99px}
+
+.chk{display:flex;align-items:center;gap:8px;cursor:pointer;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:13px}
+.chk input{width:16px;height:16px;accent-color:var(--court)}
+.chk.on{border-color:var(--mint);background:var(--mint-soft)}
+
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:100;box-shadow:var(--shadow)}
+
+.gate{max-width:380px;margin:14vh auto;padding:0 16px}
+.hint{font-size:12px;color:var(--muted);margin-top:6px}
+.divider{height:1px;background:var(--line);margin:16px 0}
+@media (prefers-reduced-motion: no-preference){
+  .tab,.btn{transition:all .14s ease}
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useCallback } = React;
+
+/* ==================================================================
+   1. CONFIG  —  incolla qui la config del tuo progetto Firebase
+   ================================================================== */
+const FIREBASE_CONFIG = {
+  apiKey: "INSERISCI_API_KEY",
+  authDomain: "INSERISCI.firebaseapp.com",
+  projectId: "INSERISCI_PROJECT_ID",
+  storageBucket: "INSERISCI.appspot.com",
+  messagingSenderId: "INSERISCI",
+  appId: "INSERISCI"
+};
+
+const COL = {
+  membri:      "fg_membri",
+  documenti:   "fg_documenti",
+  allenamenti: "fg_allenamenti",
+  movimenti:   "fg_movimenti"
+};
+
+const CONFIGURATA = !FIREBASE_CONFIG.apiKey.startsWith("INSERISCI");
+let db = null, auth = null;
+if (CONFIGURATA) {
+  firebase.initializeApp(FIREBASE_CONFIG);
+  db = firebase.firestore();
+  auth = firebase.auth();
+}
+
+/* ==================================================================
+   2. COSTANTI DI DOMINIO
+   ================================================================== */
+const RUOLI_GIOCATORE = ["Portiere","Difensore","Laterale","Pivot","Universale"];
+const RUOLI_DIRIGENTE = ["Presidente","Vicepresidente","Segretario","Tesoriere","Allenatore","Vice allenatore","Preparatore portieri","Dirigente accompagnatore","Massaggiatore","Altro"];
+const TIPI_VISITA = ["Agonistica","Non agonistica","Non richiesta"];
+const TIPI_DOC = ["Visita medica","Documento identità","Tessera sanitaria","Modulo tesseramento","Liberatoria immagini","Certificato anagrafico","Altro"];
+const STATI_TESS = ["Da iniziare","Documenti raccolti","Inviato","Tesserato","Respinto"];
+const TIPI_ALLENAMENTO = ["Allenamento","Amichevole","Partita","Riunione"];
+const CAT_ENTRATA = ["Quote associative","Sponsor","Incassi gara","Contributi","Bar / eventi","Merchandising","Altro"];
+const CAT_USCITA  = ["Iscrizione campionato","Tesseramenti","Arbitri","Affitto palestra","Abbigliamento / materiale","Trasferte","Ammende / multe","Assicurazione","Cancelleria","Altro"];
+
+/* ==================================================================
+   3. UTILITY
+   ================================================================== */
+const eur = n => (Number(n)||0).toLocaleString("it-IT",{style:"currency",currency:"EUR"});
+const oggi = () => new Date().toISOString().slice(0,10);
+const dataIT = d => d ? d.split("-").reverse().join("/") : "—";
+const giorniA = d => {
+  if(!d) return null;
+  const ms = new Date(d+"T00:00:00") - new Date(oggi()+"T00:00:00");
+  return Math.round(ms/86400000);
+};
+const meseKey = d => (d||"").slice(0,7);
+const nomeMese = k => {
+  if(!k) return "";
+  const [y,m] = k.split("-");
+  return ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"][+m-1] + " " + y.slice(2);
+};
+const cfValido = cf => /^[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]$/i.test((cf||"").trim());
+const uid = () => Math.random().toString(36).slice(2,10);
+
+function scaricaCSV(righe, nome){
+  const csv = righe.map(r => r.map(c => `"${String(c ?? "").replace(/"/g,'""')}"`).join(";")).join("\n");
+  const blob = new Blob(["\uFEFF"+csv], {type:"text/csv;charset=utf-8;"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = nome;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* Immagini compresse lato client, PDF passano così come sono.
+   Limite Firestore: 1 MB per documento -> teniamo il margine a 700 KB. */
+const LIMITE_B64 = 700 * 1024;
+
+function fileToDataURL(file){
+  return new Promise((res,rej)=>{
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = () => rej(new Error("Lettura del file non riuscita"));
+    r.readAsDataURL(file);
+  });
+}
+
+async function comprimiImmagine(file){
+  const url = await fileToDataURL(file);
+  return new Promise(res=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const max = 1500;
+      let {width:w, height:h} = img;
+      if(Math.max(w,h) > max){ const s = max/Math.max(w,h); w=Math.round(w*s); h=Math.round(h*s); }
+      const c = document.createElement("canvas");
+      c.width=w; c.height=h;
+      c.getContext("2d").drawImage(img,0,0,w,h);
+      let q = 0.72, out = c.toDataURL("image/jpeg", q);
+      while(out.length > LIMITE_B64 && q > 0.32){ q -= 0.1; out = c.toDataURL("image/jpeg", q); }
+      res(out);
+    };
+    img.onerror = ()=>res(url);
+    img.src = url;
+  });
+}
+
+async function preparaFile(file){
+  if(file.type.startsWith("image/")){
+    const b64 = await comprimiImmagine(file);
+    if(b64.length > LIMITE_B64) throw new Error("Immagine troppo pesante anche dopo la compressione. Riducila o carica su Drive e incolla il link.");
+    return { b64, mime:"image/jpeg", peso:b64.length };
+  }
+  const b64 = await fileToDataURL(file);
+  if(b64.length > LIMITE_B64) throw new Error(`File da ${(file.size/1024/1024).toFixed(1)} MB: il limite è 700 KB. Caricalo su Google Drive e incolla il link qui sotto.`);
+  return { b64, mime:file.type || "application/octet-stream", peso:b64.length };
+}
+
+/* ==================================================================
+   4. HOOK FIRESTORE
+   ================================================================== */
+function useCollection(nome, utenteOk){
+  const [dati,setDati] = useState([]);
+  const [caricamento,setCaricamento] = useState(true);
+  useEffect(()=>{
+    if(!utenteOk || !db){ setCaricamento(false); return; }
+    const off = db.collection(nome).onSnapshot(
+      snap => { setDati(snap.docs.map(d=>({id:d.id, ...d.data()}))); setCaricamento(false); },
+      err => { console.error(nome, err); setCaricamento(false); }
+    );
+    return off;
+  },[nome, utenteOk]);
+  return [dati, caricamento];
+}
+
+const salva = (col, id, dati) =>
+  id ? db.collection(col).doc(id).update(dati)
+     : db.collection(col).add({...dati, creatoIl: new Date().toISOString()});
+const elimina = (col, id) => db.collection(col).doc(id).delete();
+
+/* ==================================================================
+   5. COMPONENTI BASE
+   ================================================================== */
+const Stat = ({k,v,s,tono}) => (
+  <div className="card stat">
+    <div className="k">{k}</div>
+    <div className={"v " + (tono ? "v-"+tono : "")}>{v}</div>
+    {s && <div className="s">{s}</div>}
+  </div>
+);
+
+const Vuoto = ({titolo, testo}) => (
+  <div className="empty"><strong>{titolo}</strong>{testo}</div>
+);
+
+function Modale({titolo, onChiudi, onSalva, children, salvaLabel="Salva", larghezza}){
+  useEffect(()=>{
+    const esc = e => e.key === "Escape" && onChiudi();
+    window.addEventListener("keydown", esc);
+    return ()=>window.removeEventListener("keydown", esc);
+  },[onChiudi]);
+  return (
+    <div className="modal-bg" onMouseDown={e=>e.target===e.currentTarget && onChiudi()}>
+      <div className="modal" style={larghezza?{maxWidth:larghezza}:null}>
+        <div className="modal-h">
+          <h3 style={{fontSize:16}}>{titolo}</h3>
+          <button className="btn ghost sm" onClick={onChiudi}>Chiudi</button>
+        </div>
+        <div className="modal-b">{children}</div>
+        {onSalva && (
+          <div className="modal-f">
+            <button className="btn ghost" onClick={onChiudi}>Annulla</button>
+            <button className="btn" onClick={onSalva}>{salvaLabel}</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const Campo = ({label, span, children}) => (
+  <div className="field" style={span?{gridColumn:`span ${span}`}:null}>
+    <label>{label}</label>
+    {children}
+  </div>
+);
+
+/* Stato visita medica: la logica che serve davvero */
+function statoVisita(m){
+  if(m.tipoVisita === "Non richiesta") return {cls:"p-neutral", txt:"Non richiesta", g:null};
+  if(!m.scadenzaVisita) return {cls:"p-bad", txt:"Mancante", g:null};
+  const g = giorniA(m.scadenzaVisita);
+  if(g < 0)  return {cls:"p-bad",  txt:`Scaduta da ${-g}g`, g};
+  if(g <= 30) return {cls:"p-warn", txt:`Scade tra ${g}g`, g};
+  return {cls:"p-ok", txt:dataIT(m.scadenzaVisita), g};
+}
+
+/* ==================================================================
+   6. ROSA
+   ================================================================== */
+const MEMBRO_VUOTO = {
+  tipo:"Giocatore", nome:"", cognome:"", numero:"", ruolo:"Universale",
+  dataNascita:"", luogoNascita:"", provinciaNascita:"", codiceFiscale:"",
+  telefono:"", email:"", indirizzo:"", comune:"", cap:"", provincia:"",
+  tipoVisita:"Agonistica", scadenzaVisita:"",
+  statoTesseramento:"Da iniziare", numeroTessera:"", dataTesseramento:"",
+  attivo:true, note:""
+};
+
+function Rosa({membri, toast}){
+  const [modale,setModale] = useState(null);
+  const [f,setF] = useState("");
+  const [tipo,setTipo] = useState("Tutti");
+  const [soloAttivi,setSoloAttivi] = useState(true);
+
+  const lista = useMemo(()=>{
+    const q = f.trim().toLowerCase();
+    return membri
+      .filter(m => tipo==="Tutti" || m.tipo===tipo)
+      .filter(m => !soloAttivi || m.attivo !== false)
+      .filter(m => !q || (`${m.nome} ${m.cognome} ${m.ruolo||""} ${m.codiceFiscale||""}`).toLowerCase().includes(q))
+      .sort((a,b)=>{
+        if(a.tipo !== b.tipo) return a.tipo==="Giocatore" ? -1 : 1;
+        return (a.cognome||"").localeCompare(b.cognome||"");
+      });
+  },[membri,f,tipo,soloAttivi]);
+
+  const set = (k,v) => setModale(m=>({...m,[k]:v}));
+
+  const conferma = async () => {
+    const m = modale;
+    if(!m.nome.trim() || !m.cognome.trim()) return toast("Servono nome e cognome");
+    if(m.codiceFiscale && !cfValido(m.codiceFiscale)) return toast("Il codice fiscale non ha un formato valido");
+    const {id, ...dati} = m;
+    dati.codiceFiscale = (dati.codiceFiscale||"").toUpperCase().trim();
+    dati.numero = dati.numero === "" ? "" : String(dati.numero);
+    await salva(COL.membri, id, dati);
+    setModale(null);
+    toast(id ? "Anagrafica aggiornata" : "Membro aggiunto");
+  };
+
+  const rimuovi = async m => {
+    if(!confirm(`Elimini ${m.nome} ${m.cognome}? I documenti collegati restano ma senza riferimento.`)) return;
+    await elimina(COL.membri, m.id);
+    toast("Membro eliminato");
+  };
+
+  const esporta = () => scaricaCSV([
+    ["Tipo","Cognome","Nome","Numero","Ruolo","Nascita","Luogo","CF","Telefono","Email","Residenza","Visita","Scadenza visita","Tesseramento","N. tessera"],
+    ...lista.map(m=>[m.tipo,m.cognome,m.nome,m.numero,m.ruolo,dataIT(m.dataNascita),m.luogoNascita,m.codiceFiscale,m.telefono,m.email,`${m.indirizzo||""} ${m.cap||""} ${m.comune||""} ${m.provincia||""}`.trim(),m.tipoVisita,dataIT(m.scadenzaVisita),m.statoTesseramento,m.numeroTessera])
+  ], "rosa_futsal.csv");
+
+  const ruoli = modale?.tipo === "Giocatore" ? RUOLI_GIOCATORE : RUOLI_DIRIGENTE;
+
+  return (
+    <div className="section">
+      <div className="card">
+        <div className="card-h">
+          <h3>Rosa — {lista.length} {lista.length===1?"persona":"persone"}</h3>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+            <input style={{width:180}} placeholder="Cerca…" value={f} onChange={e=>setF(e.target.value)} />
+            <select style={{width:130}} value={tipo} onChange={e=>setTipo(e.target.value)}>
+              <option>Tutti</option><option>Giocatore</option><option>Dirigente</option>
+            </select>
+            <label className={"chk "+(soloAttivi?"on":"")} style={{marginBottom:0}}>
+              <input type="checkbox" checked={soloAttivi} onChange={e=>setSoloAttivi(e.target.checked)} />
+              Solo attivi
+            </label>
+            <button className="btn ghost sm" onClick={esporta}>CSV</button>
+            <button className="btn sm" onClick={()=>setModale({...MEMBRO_VUOTO})}>+ Aggiungi</button>
+          </div>
+        </div>
+        {lista.length === 0
+          ? <Vuoto titolo="Nessuno in rosa" testo="Aggiungi giocatori e dirigenti per iniziare a gestire visite e tesseramenti." />
+          : <div className="tw"><table>
+              <thead><tr>
+                <th style={{width:44}}></th><th>Nominativo</th><th>Ruolo</th><th>Nascita</th>
+                <th>Contatto</th><th>Visita medica</th><th>Tesseramento</th><th></th>
+              </tr></thead>
+              <tbody>
+                {lista.map(m=>{
+                  const v = statoVisita(m);
+                  const t = m.statoTesseramento;
+                  return (
+                    <tr key={m.id}>
+                      <td>
+                        {m.tipo==="Giocatore"
+                          ? <div className="jersey">{m.numero || "–"}</div>
+                          : <div className="jersey dir">DIR</div>}
+                      </td>
+                      <td>
+                        <strong>{m.cognome} {m.nome}</strong>
+                        {m.attivo === false && <span className="pill p-neutral" style={{marginLeft:6}}>inattivo</span>}
+                        <div style={{fontSize:11,color:"var(--muted)"}} className="mono">{m.codiceFiscale || "CF mancante"}</div>
+                      </td>
+                      <td>{m.ruolo}</td>
+                      <td className="mono">{dataIT(m.dataNascita)}</td>
+                      <td style={{fontSize:12}}>
+                        {m.telefono && <div className="mono">{m.telefono}</div>}
+                        {m.email && <div style={{color:"var(--muted)"}}>{m.email}</div>}
+                        {!m.telefono && !m.email && "—"}
+                      </td>
+                      <td><span className={"pill "+v.cls}>{v.txt}</span></td>
+                      <td><span className={"pill "+(t==="Tesserato"?"p-ok":t==="Inviato"?"p-warn":t==="Respinto"?"p-bad":"p-neutral")}>{t}</span></td>
+                      <td style={{whiteSpace:"nowrap"}}>
+                        <button className="btn ghost sm" onClick={()=>setModale({...MEMBRO_VUOTO, ...m})}>Modifica</button>{" "}
+                        <button className="btn danger sm" onClick={()=>rimuovi(m)}>×</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table></div>}
+      </div>
+
+      {modale && (
+        <Modale titolo={modale.id ? "Modifica anagrafica" : "Nuovo membro"} onChiudi={()=>setModale(null)} onSalva={conferma}>
+          <div className="row g3">
+            <Campo label="Tipo">
+              <select value={modale.tipo} onChange={e=>{
+                const t = e.target.value;
+                setModale(m=>({...m, tipo:t, ruolo: t==="Giocatore" ? "Universale" : "Dirigente accompagnatore"}));
+              }}>
+                <option>Giocatore</option><option>Dirigente</option>
+              </select>
+            </Campo>
+            <Campo label="Cognome"><input value={modale.cognome} onChange={e=>set("cognome",e.target.value)} /></Campo>
+            <Campo label="Nome"><input value={modale.nome} onChange={e=>set("nome",e.target.value)} /></Campo>
+          </div>
+          <div className="row g3">
+            <Campo label="Ruolo">
+              <select value={modale.ruolo} onChange={e=>set("ruolo",e.target.value)}>
+                {ruoli.map(r=><option key={r}>{r}</option>)}
+              </select>
+            </Campo>
+            <Campo label="Numero maglia">
+              <input type="number" min="1" max="99" value={modale.numero} disabled={modale.tipo!=="Giocatore"} onChange={e=>set("numero",e.target.value)} />
+            </Campo>
+            <Campo label="In rosa">
+              <select value={modale.attivo ? "si":"no"} onChange={e=>set("attivo", e.target.value==="si")}>
+                <option value="si">Attivo</option><option value="no">Inattivo</option>
+              </select>
+            </Campo>
+          </div>
+
+          <div className="divider"></div>
+          <h4 style={{fontSize:12,textTransform:"uppercase",letterSpacing:".07em",color:"var(--muted)",marginBottom:10}}>Dati anagrafici</h4>
+          <div className="row g3">
+            <Campo label="Data di nascita"><input type="date" value={modale.dataNascita} onChange={e=>set("dataNascita",e.target.value)} /></Campo>
+            <Campo label="Luogo di nascita"><input value={modale.luogoNascita} onChange={e=>set("luogoNascita",e.target.value)} /></Campo>
+            <Campo label="Prov."><input maxLength="2" value={modale.provinciaNascita} onChange={e=>set("provinciaNascita",e.target.value.toUpperCase())} /></Campo>
+          </div>
+          <Campo label="Codice fiscale">
+            <input className="mono" maxLength="16" style={{textTransform:"uppercase"}} value={modale.codiceFiscale} onChange={e=>set("codiceFiscale",e.target.value)} />
+            {modale.codiceFiscale && !cfValido(modale.codiceFiscale) && <div className="hint" style={{color:"var(--coral)"}}>Formato non valido — 16 caratteri, es. RSSMRA85M01H501Z</div>}
+          </Campo>
+          <div className="row g2">
+            <Campo label="Telefono"><input value={modale.telefono} onChange={e=>set("telefono",e.target.value)} /></Campo>
+            <Campo label="Email"><input type="email" value={modale.email} onChange={e=>set("email",e.target.value)} /></Campo>
+          </div>
+          <div className="row" style={{gridTemplateColumns:"2fr 1.4fr .8fr .6fr"}}>
+            <Campo label="Indirizzo"><input value={modale.indirizzo} onChange={e=>set("indirizzo",e.target.value)} /></Campo>
+            <Campo label="Comune"><input value={modale.comune} onChange={e=>set("comune",e.target.value)} /></Campo>
+            <Campo label="CAP"><input maxLength="5" value={modale.cap} onChange={e=>set("cap",e.target.value)} /></Campo>
+            <Campo label="Prov."><input maxLength="2" value={modale.provincia} onChange={e=>set("provincia",e.target.value.toUpperCase())} /></Campo>
+          </div>
+
+          <div className="divider"></div>
+          <h4 style={{fontSize:12,textTransform:"uppercase",letterSpacing:".07em",color:"var(--muted)",marginBottom:10}}>Visita medica e tesseramento</h4>
+          <div className="row g2">
+            <Campo label="Tipo visita">
+              <select value={modale.tipoVisita} onChange={e=>set("tipoVisita",e.target.value)}>{TIPI_VISITA.map(t=><option key={t}>{t}</option>)}</select>
+            </Campo>
+            <Campo label="Scadenza visita">
+              <input type="date" value={modale.scadenzaVisita} disabled={modale.tipoVisita==="Non richiesta"} onChange={e=>set("scadenzaVisita",e.target.value)} />
+            </Campo>
+          </div>
+          <div className="row g3">
+            <Campo label="Stato tesseramento">
+              <select value={modale.statoTesseramento} onChange={e=>set("statoTesseramento",e.target.value)}>{STATI_TESS.map(s=><option key={s}>{s}</option>)}</select>
+            </Campo>
+            <Campo label="Numero tessera"><input className="mono" value={modale.numeroTessera} onChange={e=>set("numeroTessera",e.target.value)} /></Campo>
+            <Campo label="Data tesseramento"><input type="date" value={modale.dataTesseramento} onChange={e=>set("dataTesseramento",e.target.value)} /></Campo>
+          </div>
+          <Campo label="Note"><textarea rows="2" value={modale.note} onChange={e=>set("note",e.target.value)} /></Campo>
+        </Modale>
+      )}
+    </div>
+  );
+}
+
+/* ==================================================================
+   7. DOCUMENTI
+   ================================================================== */
+const DOC_VUOTO = { tipo:"Visita medica", membroId:"", titolo:"", scadenza:"", note:"", modo:"file", link:"", file:null, nomeFile:"", mime:"", peso:0 };
+
+function Documenti({documenti, membri, toast}){
+  const [modale,setModale] = useState(null);
+  const [caricando,setCaricando] = useState(false);
+  const [fTipo,setFTipo] = useState("Tutti");
+  const nome = id => { const m = membri.find(x=>x.id===id); return m ? `${m.cognome} ${m.nome}` : "Società"; };
+
+  const lista = useMemo(()=>documenti
+    .filter(d=>fTipo==="Tutti"||d.tipo===fTipo)
+    .sort((a,b)=>(b.creatoIl||"").localeCompare(a.creatoIl||"")),[documenti,fTipo]);
+
+  const scegli = async e => {
+    const file = e.target.files[0];
+    if(!file) return;
+    setCaricando(true);
+    try{
+      const {b64,mime,peso} = await preparaFile(file);
+      setModale(m=>({...m, file:b64, mime, peso, nomeFile:file.name, titolo: m.titolo || file.name.replace(/\.[^.]+$/,"")}));
+    }catch(err){ toast(err.message); }
+    setCaricando(false);
+  };
+
+  const conferma = async () => {
+    const d = modale;
+    if(d.modo==="file" && !d.file && !d.id) return toast("Scegli un file oppure passa al link Drive");
+    if(d.modo==="link" && !d.link.trim()) return toast("Incolla il link al documento");
+    if(!d.titolo.trim()) return toast("Dai un titolo al documento");
+    const {id, ...dati} = d;
+    if(dati.modo==="link"){ dati.file=null; dati.nomeFile=""; dati.peso=0; }
+    await salva(COL.documenti, id, dati);
+
+    // Se è una visita medica con scadenza, allineo l'anagrafica: un dato solo, una fonte.
+    if(dati.tipo==="Visita medica" && dati.membroId && dati.scadenza){
+      await salva(COL.membri, dati.membroId, {scadenzaVisita: dati.scadenza});
+    }
+    setModale(null);
+    toast("Documento salvato");
+  };
+
+  const apri = d => {
+    if(d.modo==="link"){ window.open(d.link,"_blank","noopener"); return; }
+    const w = window.open();
+    if(d.mime==="application/pdf") w.document.write(`<iframe src="${d.file}" style="border:0;width:100%;height:100vh"></iframe>`);
+    else w.document.write(`<img src="${d.file}" style="max-width:100%">`);
+  };
+
+  const rimuovi = async d => { if(confirm(`Elimini "${d.titolo}"?`)){ await elimina(COL.documenti,d.id); toast("Documento eliminato"); } };
+  const set = (k,v)=>setModale(m=>({...m,[k]:v}));
+
+  return (
+    <div className="section">
+      <div className="card">
+        <div className="card-h">
+          <h3>Documenti — {lista.length}</h3>
+          <div style={{display:"flex",gap:8}}>
+            <select style={{width:180}} value={fTipo} onChange={e=>setFTipo(e.target.value)}>
+              <option>Tutti</option>{TIPI_DOC.map(t=><option key={t}>{t}</option>)}
+            </select>
+            <button className="btn sm" onClick={()=>setModale({...DOC_VUOTO})}>+ Carica</button>
+          </div>
+        </div>
+        {lista.length===0
+          ? <Vuoto titolo="Nessun documento" testo="Carica visite mediche, documenti d'identità e moduli di tesseramento." />
+          : <div className="tw"><table>
+              <thead><tr><th>Documento</th><th>Tipo</th><th>Intestatario</th><th>Scadenza</th><th className="num">Peso</th><th></th></tr></thead>
+              <tbody>{lista.map(d=>{
+                const g = giorniA(d.scadenza);
+                return (
+                  <tr key={d.id}>
+                    <td>
+                      <strong>{d.titolo}</strong>
+                      <div style={{fontSize:11,color:"var(--muted)"}}>{d.modo==="link" ? "Link esterno" : d.nomeFile}</div>
+                    </td>
+                    <td>{d.tipo}</td>
+                    <td>{nome(d.membroId)}</td>
+                    <td>{d.scadenza
+                      ? <span className={"pill "+(g<0?"p-bad":g<=30?"p-warn":"p-ok")}>{dataIT(d.scadenza)}</span>
+                      : "—"}</td>
+                    <td className="num" style={{fontSize:11,color:"var(--muted)"}}>{d.peso ? Math.round(d.peso/1024)+" KB" : "—"}</td>
+                    <td style={{whiteSpace:"nowrap"}}>
+                      <button className="btn ghost sm" onClick={()=>apri(d)}>Apri</button>{" "}
+                      <button className="btn ghost sm" onClick={()=>setModale({...DOC_VUOTO,...d})}>Modifica</button>{" "}
+                      <button className="btn danger sm" onClick={()=>rimuovi(d)}>×</button>
+                    </td>
+                  </tr>
+                );
+              })}</tbody>
+            </table></div>}
+      </div>
+
+      {modale && (
+        <Modale titolo={modale.id?"Modifica documento":"Carica documento"} onChiudi={()=>setModale(null)} onSalva={caricando?null:conferma} salvaLabel="Salva documento">
+          <div className="row g2">
+            <Campo label="Tipo"><select value={modale.tipo} onChange={e=>set("tipo",e.target.value)}>{TIPI_DOC.map(t=><option key={t}>{t}</option>)}</select></Campo>
+            <Campo label="Intestatario">
+              <select value={modale.membroId} onChange={e=>set("membroId",e.target.value)}>
+                <option value="">Società (nessuna persona)</option>
+                {membri.map(m=><option key={m.id} value={m.id}>{m.cognome} {m.nome}</option>)}
+              </select>
+            </Campo>
+          </div>
+          <div className="row g2">
+            <Campo label="Titolo"><input value={modale.titolo} onChange={e=>set("titolo",e.target.value)} /></Campo>
+            <Campo label="Scadenza (opzionale)"><input type="date" value={modale.scadenza} onChange={e=>set("scadenza",e.target.value)} /></Campo>
+          </div>
+          {modale.tipo==="Visita medica" && modale.membroId && modale.scadenza &&
+            <div className="hint" style={{marginTop:-6,marginBottom:12}}>La scadenza aggiorna anche l'anagrafica in rosa.</div>}
+
+          <div className="divider"></div>
+          <div style={{display:"flex",gap:8,marginBottom:12}}>
+            <button className={"btn "+(modale.modo==="file"?"":"ghost")+" sm"} onClick={()=>set("modo","file")}>Carica file</button>
+            <button className={"btn "+(modale.modo==="link"?"":"ghost")+" sm"} onClick={()=>set("modo","link")}>Link Google Drive</button>
+          </div>
+
+          {modale.modo==="file" ? (
+            <Campo label="File (PDF o immagine, max 700 KB)">
+              <input type="file" accept="image/*,application/pdf" onChange={scegli} />
+              {caricando && <div className="hint">Preparazione del file…</div>}
+              {modale.file && <div className="hint" style={{color:"var(--mint)"}}>Pronto: {modale.nomeFile} · {Math.round(modale.peso/1024)} KB</div>}
+              <div className="hint">Le foto vengono compresse in automatico. I PDF oltre 700 KB vanno su Drive.</div>
+            </Campo>
+          ) : (
+            <Campo label="Link al file">
+              <input placeholder="https://drive.google.com/…" value={modale.link} onChange={e=>set("link",e.target.value)} />
+              <div className="hint">Imposta la condivisione su "chiunque abbia il link" prima di incollarlo.</div>
+            </Campo>
+          )}
+          <Campo label="Note"><textarea rows="2" value={modale.note} onChange={e=>set("note",e.target.value)} /></Campo>
+        </Modale>
+      )}
+    </div>
+  );
+}
+
+/* ==================================================================
+   8. TESSERAMENTI
+   ================================================================== */
+function Tesseramenti({membri, documenti, toast}){
+  const attivi = membri.filter(m=>m.attivo!==false);
+
+  const checklist = m => {
+    const suoi = documenti.filter(d=>d.membroId===m.id);
+    const ha = t => suoi.some(d=>d.tipo===t);
+    return [
+      {k:"Anagrafica completa", ok: !!(m.dataNascita && m.luogoNascita && cfValido(m.codiceFiscale))},
+      {k:"Documento identità",  ok: ha("Documento identità")},
+      {k:"Visita medica",       ok: m.tipoVisita==="Non richiesta" || (!!m.scadenzaVisita && giorniA(m.scadenzaVisita) >= 0)},
+      {k:"Modulo firmato",      ok: ha("Modulo tesseramento")},
+      {k:"Liberatoria immagini",ok: ha("Liberatoria immagini")}
+    ];
+  };
+
+  const righe = attivi.map(m=>{
+    const c = checklist(m);
+    const fatti = c.filter(x=>x.ok).length;
+    return {m, c, fatti, pronto: fatti===c.length};
+  }).sort((a,b)=>a.fatti-b.fatti || (a.m.cognome||"").localeCompare(b.m.cognome||""));
+
+  const pronti = righe.filter(r=>r.pronto).length;
+  const tesserati = attivi.filter(m=>m.statoTesseramento==="Tesserato").length;
+
+  const avanza = async (m, stato) => { await salva(COL.membri,m.id,{statoTesseramento:stato}); toast(`${m.cognome}: ${stato.toLowerCase()}`); };
+
+  const esportaFederazione = () => {
+    const sel = righe.filter(r=>r.m.statoTesseramento!=="Tesserato");
+    if(!sel.length) return toast("Sono già tutti tesserati");
+    scaricaCSV([
+      ["Cognome","Nome","Data nascita","Comune nascita","Prov. nascita","Codice fiscale","Indirizzo","CAP","Comune","Prov.","Telefono","Email","Ruolo","Qualifica","Scadenza visita"],
+      ...sel.map(({m})=>[m.cognome,m.nome,dataIT(m.dataNascita),m.luogoNascita,m.provinciaNascita,m.codiceFiscale,m.indirizzo,m.cap,m.comune,m.provincia,m.telefono,m.email,m.ruolo,m.tipo,dataIT(m.scadenzaVisita)])
+    ], "distinta_tesseramento.csv");
+  };
+
+  return (
+    <div className="section">
+      <div className="grid g3" style={{marginBottom:14}}>
+        <Stat k="Tesserati" v={`${tesserati}/${attivi.length}`} s="sul totale in rosa" tono={tesserati===attivi.length?"mint":null} />
+        <Stat k="Pratiche complete" v={pronti} s="pronte da inviare" tono={pronti?"mint":null} />
+        <Stat k="Da completare" v={attivi.length-pronti} s="documenti mancanti" tono={attivi.length-pronti?"amber":null} />
+      </div>
+
+      <div className="card">
+        <div className="card-h">
+          <h3>Pratiche di tesseramento</h3>
+          <button className="btn ghost sm" onClick={esportaFederazione}>Esporta distinta CSV</button>
+        </div>
+        {righe.length===0
+          ? <Vuoto titolo="Rosa vuota" testo="Aggiungi prima i membri della squadra." />
+          : <div className="tw"><table>
+              <thead><tr><th>Nominativo</th><th style={{width:190}}>Documenti</th><th>Mancanti</th><th>Stato</th><th></th></tr></thead>
+              <tbody>{righe.map(({m,c,fatti,pronto})=>(
+                <tr key={m.id}>
+                  <td><strong>{m.cognome} {m.nome}</strong><div style={{fontSize:11,color:"var(--muted)"}}>{m.tipo} · {m.ruolo}</div></td>
+                  <td>
+                    <div className="bar"><i style={{width:(fatti/c.length*100)+"%", background: pronto?"var(--mint)":"var(--amber)"}}></i></div>
+                    <div style={{fontSize:11,color:"var(--muted)",marginTop:4}} className="mono">{fatti}/{c.length}</div>
+                  </td>
+                  <td style={{fontSize:12,color:"var(--muted)"}}>
+                    {pronto ? <span style={{color:"var(--mint)",fontWeight:600}}>Tutto a posto</span> : c.filter(x=>!x.ok).map(x=>x.k).join(" · ")}
+                  </td>
+                  <td>
+                    <span className={"pill "+(m.statoTesseramento==="Tesserato"?"p-ok":m.statoTesseramento==="Inviato"?"p-warn":m.statoTesseramento==="Respinto"?"p-bad":"p-neutral")}>
+                      {m.statoTesseramento}
+                    </span>
+                    {m.numeroTessera && <div className="mono" style={{fontSize:11,color:"var(--muted)",marginTop:3}}>{m.numeroTessera}</div>}
+                  </td>
+                  <td style={{whiteSpace:"nowrap"}}>
+                    {m.statoTesseramento!=="Inviato" && m.statoTesseramento!=="Tesserato" &&
+                      <button className="btn ghost sm" disabled={!pronto} onClick={()=>avanza(m,"Inviato")}>Segna inviato</button>}
+                    {m.statoTesseramento==="Inviato" &&
+                      <button className="btn sm" onClick={()=>avanza(m,"Tesserato")}>Segna tesserato</button>}
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table></div>}
+      </div>
+    </div>
+  );
+}
+
+/* ==================================================================
+   9. ALLENAMENTI
+   ================================================================== */
+const SESS_VUOTA = { data:oggi(), ora:"21:00", tipo:"Allenamento", luogo:"Palestra comunale — Fabbrico", note:"", presenti:[] };
+
+function Allenamenti({allenamenti, membri, toast}){
+  const [modale,setModale] = useState(null);
+  const [presenze,setPresenze] = useState(null);
+
+  const giocatori = membri.filter(m=>m.attivo!==false && m.tipo==="Giocatore")
+    .sort((a,b)=>(a.cognome||"").localeCompare(b.cognome||""));
+
+  const lista = useMemo(()=>[...allenamenti].sort((a,b)=>(b.data+b.ora).localeCompare(a.data+a.ora)),[allenamenti]);
+  const passate = lista.filter(s=>s.data <= oggi());
+
+  const stats = useMemo(()=>{
+    const tot = passate.filter(s=>s.tipo==="Allenamento").length;
+    return giocatori.map(g=>{
+      const p = passate.filter(s=>s.tipo==="Allenamento" && (s.presenti||[]).includes(g.id)).length;
+      return {g, p, tot, pct: tot ? Math.round(p/tot*100) : 0};
+    }).sort((a,b)=>b.pct-a.pct);
+  },[passate,giocatori]);
+
+  const conferma = async () => {
+    const {id, ...dati} = modale;
+    if(!dati.data) return toast("Serve la data");
+    await salva(COL.allenamenti, id, dati);
+    setModale(null); toast("Sessione salvata");
+  };
+  const rimuovi = async s => { if(confirm(`Elimini la sessione del ${dataIT(s.data)}?`)){ await elimina(COL.allenamenti,s.id); toast("Sessione eliminata"); } };
+
+  const toggle = async gid => {
+    const presenti = (presenze.presenti||[]).includes(gid)
+      ? presenze.presenti.filter(x=>x!==gid)
+      : [...(presenze.presenti||[]), gid];
+    setPresenze(p=>({...p,presenti}));
+    await salva(COL.allenamenti, presenze.id, {presenti});
+  };
+
+  return (
+    <div className="section">
+      <div className="grid" style={{gridTemplateColumns:"1.5fr 1fr"}}>
+        <div className="card">
+          <div className="card-h">
+            <h3>Sessioni — {lista.length}</h3>
+            <button className="btn sm" onClick={()=>setModale({...SESS_VUOTA})}>+ Nuova sessione</button>
+          </div>
+          {lista.length===0
+            ? <Vuoto titolo="Nessuna sessione" testo="Crea allenamenti e partite, poi registra le presenze." />
+            : <div className="tw"><table>
+                <thead><tr><th>Data</th><th>Tipo</th><th>Luogo</th><th className="num">Presenti</th><th></th></tr></thead>
+                <tbody>{lista.map(s=>{
+                  const futura = s.data > oggi();
+                  const n = (s.presenti||[]).length;
+                  return (
+                    <tr key={s.id}>
+                      <td>
+                        <strong className="mono">{dataIT(s.data)}</strong>
+                        <div style={{fontSize:11,color:"var(--muted)"}} className="mono">{s.ora}</div>
+                      </td>
+                      <td>
+                        <span className={"pill "+(s.tipo==="Partita"?"p-warn":s.tipo==="Amichevole"?"p-neutral":"p-ok")}>{s.tipo}</span>
+                        {futura && <div style={{fontSize:11,color:"var(--muted)",marginTop:3}}>in programma</div>}
+                      </td>
+                      <td style={{fontSize:12}}>{s.luogo}</td>
+                      <td className="num"><strong>{n}</strong><span style={{color:"var(--muted)"}}>/{giocatori.length}</span></td>
+                      <td style={{whiteSpace:"nowrap"}}>
+                        <button className="btn ghost sm" onClick={()=>setPresenze(s)}>Presenze</button>{" "}
+                        <button className="btn ghost sm" onClick={()=>setModale({...SESS_VUOTA,...s})}>Modifica</button>{" "}
+                        <button className="btn danger sm" onClick={()=>rimuovi(s)}>×</button>
+                      </td>
+                    </tr>
+                  );
+                })}</tbody>
+              </table></div>}
+        </div>
+
+        <div className="card">
+          <div className="card-h"><h3>Tasso di presenza</h3></div>
+          {stats.length===0 || stats[0].tot===0
+            ? <Vuoto titolo="Ancora nulla da contare" testo="Le percentuali compaiono dopo il primo allenamento registrato." />
+            : <div className="card-b">
+                {stats.map(({g,p,tot,pct})=>(
+                  <div key={g.id} style={{marginBottom:12}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}>
+                      <span><strong>{g.cognome}</strong> <span style={{color:"var(--muted)"}}>{g.nome}</span></span>
+                      <span className="mono" style={{color: pct>=75?"var(--mint)":pct>=50?"var(--amber)":"var(--coral)", fontWeight:700}}>{pct}% <span style={{color:"var(--muted)",fontWeight:400}}>({p}/{tot})</span></span>
+                    </div>
+                    <div className="bar"><i style={{width:pct+"%", background: pct>=75?"var(--mint)":pct>=50?"var(--amber)":"var(--coral)"}}></i></div>
+                  </div>
+                ))}
+              </div>}
+        </div>
+      </div>
+
+      {modale && (
+        <Modale titolo={modale.id?"Modifica sessione":"Nuova sessione"} onChiudi={()=>setModale(null)} onSalva={conferma}>
+          <div className="row g3">
+            <Campo label="Data"><input type="date" value={modale.data} onChange={e=>setModale(m=>({...m,data:e.target.value}))} /></Campo>
+            <Campo label="Ora"><input type="time" value={modale.ora} onChange={e=>setModale(m=>({...m,ora:e.target.value}))} /></Campo>
+            <Campo label="Tipo"><select value={modale.tipo} onChange={e=>setModale(m=>({...m,tipo:e.target.value}))}>{TIPI_ALLENAMENTO.map(t=><option key={t}>{t}</option>)}</select></Campo>
+          </div>
+          <Campo label="Luogo"><input value={modale.luogo} onChange={e=>setModale(m=>({...m,luogo:e.target.value}))} /></Campo>
+          <Campo label="Note"><textarea rows="2" value={modale.note} onChange={e=>setModale(m=>({...m,note:e.target.value}))} /></Campo>
+        </Modale>
+      )}
+
+      {presenze && (
+        <Modale titolo={`Presenze — ${dataIT(presenze.data)}`} onChiudi={()=>setPresenze(null)}>
+          <div className="hint" style={{marginBottom:12}}>Ogni tocco salva subito. {(presenze.presenti||[]).length} su {giocatori.length}.</div>
+          <div className="grid g2">
+            {giocatori.map(g=>{
+              const on = (presenze.presenti||[]).includes(g.id);
+              return (
+                <label key={g.id} className={"chk "+(on?"on":"")}>
+                  <input type="checkbox" checked={on} onChange={()=>toggle(g.id)} />
+                  <span><strong>{g.cognome}</strong> {g.nome}</span>
+                </label>
+              );
+            })}
+          </div>
+          {giocatori.length===0 && <Vuoto titolo="Nessun giocatore attivo" testo="Aggiungili dalla sezione Rosa." />}
+        </Modale>
+      )}
+    </div>
+  );
+}
+
+/* ==================================================================
+   10. COSTI E RICAVI
+   ================================================================== */
+const MOV_VUOTO = { data:oggi(), verso:"Uscita", categoria:"Affitto palestra", descrizione:"", importo:"", metodo:"Contanti", membroId:"", incassato:true };
+
+function Bilancio({movimenti, membri, toast}){
+  const [modale,setModale] = useState(null);
+  const [anno,setAnno] = useState(new Date().getFullYear().toString());
+
+  const anni = useMemo(()=>{
+    const s = new Set(movimenti.map(m=>(m.data||"").slice(0,4)).filter(Boolean));
+    s.add(new Date().getFullYear().toString());
+    return [...s].sort().reverse();
+  },[movimenti]);
+
+  const mov = useMemo(()=>movimenti
+    .filter(m=>(m.data||"").startsWith(anno))
+    .sort((a,b)=>(b.data||"").localeCompare(a.data||"")),[movimenti,anno]);
+
+  const entrate = mov.filter(m=>m.verso==="Entrata").reduce((s,m)=>s+Number(m.importo||0),0);
+  const uscite  = mov.filter(m=>m.verso==="Uscita").reduce((s,m)=>s+Number(m.importo||0),0);
+  const saldo   = entrate - uscite;
+  const daIncassare = mov.filter(m=>m.verso==="Entrata" && !m.incassato).reduce((s,m)=>s+Number(m.importo||0),0);
+
+  const perMese = useMemo(()=>{
+    const map = {};
+    mov.forEach(m=>{
+      const k = meseKey(m.data);
+      if(!map[k]) map[k] = {e:0,u:0};
+      map[k][m.verso==="Entrata"?"e":"u"] += Number(m.importo||0);
+    });
+    return Object.entries(map).sort((a,b)=>a[0].localeCompare(b[0]));
+  },[mov]);
+  const maxMese = Math.max(1, ...perMese.flatMap(([,v])=>[v.e,v.u]));
+
+  const perCategoria = useMemo(()=>{
+    const map = {};
+    mov.filter(m=>m.verso==="Uscita").forEach(m=>{ map[m.categoria] = (map[m.categoria]||0) + Number(m.importo||0); });
+    return Object.entries(map).sort((a,b)=>b[1]-a[1]);
+  },[mov]);
+
+  const set = (k,v)=>setModale(m=>({...m,[k]:v}));
+  const conferma = async () => {
+    const d = {...modale};
+    if(!d.descrizione.trim()) return toast("Serve una descrizione");
+    if(!(Number(d.importo)>0)) return toast("L'importo deve essere maggiore di zero");
+    d.importo = Number(d.importo);
+    const {id,...dati} = d;
+    await salva(COL.movimenti,id,dati);
+    setModale(null); toast("Movimento registrato");
+  };
+  const rimuovi = async m => { if(confirm(`Elimini "${m.descrizione}"?`)){ await elimina(COL.movimenti,m.id); toast("Movimento eliminato"); } };
+
+  const esporta = () => scaricaCSV([
+    ["Data","Verso","Categoria","Descrizione","Importo","Metodo","Persona","Incassato"],
+    ...mov.map(m=>[dataIT(m.data),m.verso,m.categoria,m.descrizione,String(m.importo).replace(".",","),m.metodo,
+      (membri.find(x=>x.id===m.membroId)||{}).cognome||"",m.incassato?"Sì":"No"])
+  ], `movimenti_${anno}.csv`);
+
+  const cat = modale?.verso==="Entrata" ? CAT_ENTRATA : CAT_USCITA;
+
+  return (
+    <div className="section">
+      <div className="grid g4" style={{marginBottom:14}}>
+        <Stat k="Entrate" v={eur(entrate)} s={anno} tono="mint" />
+        <Stat k="Uscite" v={eur(uscite)} s={anno} tono="coral" />
+        <Stat k="Saldo" v={eur(saldo)} s={saldo>=0?"in attivo":"in passivo"} tono={saldo>=0?"mint":"coral"} />
+        <Stat k="Da incassare" v={eur(daIncassare)} s="quote e crediti aperti" tono={daIncassare?"amber":null} />
+      </div>
+
+      <div className="grid" style={{gridTemplateColumns:"1.6fr 1fr", marginBottom:14}}>
+        <div className="card">
+          <div className="card-h"><h3>Andamento mensile</h3></div>
+          <div className="card-b">
+            {perMese.length===0
+              ? <Vuoto titolo="Nessun movimento" testo={`Non c'è ancora nulla registrato nel ${anno}.`} />
+              : <div style={{display:"flex",gap:10,alignItems:"flex-end",height:170,overflowX:"auto",paddingBottom:4}}>
+                  {perMese.map(([k,v])=>(
+                    <div key={k} style={{minWidth:44,textAlign:"center",flex:1}}>
+                      <div style={{display:"flex",gap:3,alignItems:"flex-end",height:130,justifyContent:"center"}}>
+                        <div title={"Entrate "+eur(v.e)} style={{width:"42%",height:Math.max(2,v.e/maxMese*130)+"px",background:"var(--mint)",borderRadius:"3px 3px 0 0"}}></div>
+                        <div title={"Uscite "+eur(v.u)} style={{width:"42%",height:Math.max(2,v.u/maxMese*130)+"px",background:"var(--coral)",borderRadius:"3px 3px 0 0"}}></div>
+                      </div>
+                      <div style={{fontSize:10,color:"var(--muted)",marginTop:6,textTransform:"uppercase",letterSpacing:".04em"}}>{nomeMese(k)}</div>
+                    </div>
+                  ))}
+                </div>}
+            <div style={{display:"flex",gap:16,marginTop:12,fontSize:11,color:"var(--muted)"}}>
+              <span><i style={{display:"inline-block",width:9,height:9,background:"var(--mint)",borderRadius:2,marginRight:5}}></i>Entrate</span>
+              <span><i style={{display:"inline-block",width:9,height:9,background:"var(--coral)",borderRadius:2,marginRight:5}}></i>Uscite</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-h"><h3>Uscite per categoria</h3></div>
+          <div className="card-b">
+            {perCategoria.length===0
+              ? <Vuoto titolo="Nessuna uscita" testo="" />
+              : perCategoria.map(([c,v])=>(
+                  <div key={c} style={{marginBottom:11}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}>
+                      <span>{c}</span><span className="mono" style={{fontWeight:600}}>{eur(v)}</span>
+                    </div>
+                    <div className="bar"><i style={{width:(v/uscite*100)+"%",background:"var(--coral)"}}></i></div>
+                  </div>
+                ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-h">
+          <h3>Movimenti — {mov.length}</h3>
+          <div style={{display:"flex",gap:8}}>
+            <select style={{width:110}} value={anno} onChange={e=>setAnno(e.target.value)}>{anni.map(a=><option key={a}>{a}</option>)}</select>
+            <button className="btn ghost sm" onClick={esporta}>CSV</button>
+            <button className="btn sm" onClick={()=>setModale({...MOV_VUOTO})}>+ Registra</button>
+          </div>
+        </div>
+        {mov.length===0
+          ? <Vuoto titolo="Registro vuoto" testo="Registra quote, sponsor, affitto palestra e trasferte." />
+          : <div className="tw"><table>
+              <thead><tr><th>Data</th><th>Descrizione</th><th>Categoria</th><th>Persona</th><th>Metodo</th><th className="num">Importo</th><th></th></tr></thead>
+              <tbody>{mov.map(m=>{
+                const e = m.verso==="Entrata";
+                const p = membri.find(x=>x.id===m.membroId);
+                return (
+                  <tr key={m.id}>
+                    <td className="mono" style={{whiteSpace:"nowrap"}}>{dataIT(m.data)}</td>
+                    <td>
+                      <strong>{m.descrizione}</strong>
+                      {e && !m.incassato && <span className="pill p-warn" style={{marginLeft:6}}>da incassare</span>}
+                    </td>
+                    <td style={{fontSize:12,color:"var(--muted)"}}>{m.categoria}</td>
+                    <td style={{fontSize:12}}>{p ? `${p.cognome} ${p.nome}` : "—"}</td>
+                    <td style={{fontSize:12,color:"var(--muted)"}}>{m.metodo}</td>
+                    <td className="num" style={{color: e?"var(--mint)":"var(--coral)", fontWeight:700, whiteSpace:"nowrap"}}>
+                      {e?"+":"−"} {eur(m.importo).replace("€","").trim()}
+                    </td>
+                    <td style={{whiteSpace:"nowrap"}}>
+                      <button className="btn ghost sm" onClick={()=>setModale({...MOV_VUOTO,...m})}>Modifica</button>{" "}
+                      <button className="btn danger sm" onClick={()=>rimuovi(m)}>×</button>
+                    </td>
+                  </tr>
+                );
+              })}</tbody>
+            </table></div>}
+      </div>
+
+      {modale && (
+        <Modale titolo={modale.id?"Modifica movimento":"Registra movimento"} onChiudi={()=>setModale(null)} onSalva={conferma}>
+          <div className="row g3">
+            <Campo label="Verso">
+              <select value={modale.verso} onChange={e=>{
+                const v = e.target.value;
+                setModale(m=>({...m, verso:v, categoria: v==="Entrata" ? CAT_ENTRATA[0] : CAT_USCITA[0]}));
+              }}>
+                <option>Uscita</option><option>Entrata</option>
+              </select>
+            </Campo>
+            <Campo label="Data"><input type="date" value={modale.data} onChange={e=>set("data",e.target.value)} /></Campo>
+            <Campo label="Importo €"><input type="number" step="0.01" min="0" value={modale.importo} onChange={e=>set("importo",e.target.value)} /></Campo>
+          </div>
+          <Campo label="Descrizione"><input value={modale.descrizione} onChange={e=>set("descrizione",e.target.value)} placeholder={modale.verso==="Entrata"?"Quota associativa 2026/27":"Affitto palestra — settembre"} /></Campo>
+          <div className="row g2">
+            <Campo label="Categoria"><select value={modale.categoria} onChange={e=>set("categoria",e.target.value)}>{cat.map(c=><option key={c}>{c}</option>)}</select></Campo>
+            <Campo label="Metodo">
+              <select value={modale.metodo} onChange={e=>set("metodo",e.target.value)}>
+                <option>Contanti</option><option>Bonifico</option><option>Carta</option><option>Satispay</option><option>Altro</option>
+              </select>
+            </Campo>
+          </div>
+          <div className="row g2">
+            <Campo label="Persona collegata (opzionale)">
+              <select value={modale.membroId} onChange={e=>set("membroId",e.target.value)}>
+                <option value="">Nessuna</option>
+                {membri.map(m=><option key={m.id} value={m.id}>{m.cognome} {m.nome}</option>)}
+              </select>
+            </Campo>
+            {modale.verso==="Entrata" && (
+              <Campo label="Stato">
+                <select value={modale.incassato?"si":"no"} onChange={e=>set("incassato",e.target.value==="si")}>
+                  <option value="si">Incassato</option><option value="no">Da incassare</option>
+                </select>
+              </Campo>
+            )}
+          </div>
+        </Modale>
+      )}
+    </div>
+  );
+}
+
+/* ==================================================================
+   11. DASHBOARD
+   ================================================================== */
+function Dashboard({membri, documenti, allenamenti, movimenti, vai}){
+  const attivi = membri.filter(m=>m.attivo!==false);
+  const giocatori = attivi.filter(m=>m.tipo==="Giocatore");
+  const dirigenti = attivi.filter(m=>m.tipo==="Dirigente");
+  const tesserati = attivi.filter(m=>m.statoTesseramento==="Tesserato").length;
+
+  const allerte = attivi
+    .map(m=>({m, v:statoVisita(m)}))
+    .filter(({v})=> v.cls==="p-bad" || v.cls==="p-warn")
+    .sort((a,b)=>(a.v.g ?? -999) - (b.v.g ?? -999));
+
+  const entrate = movimenti.filter(m=>m.verso==="Entrata").reduce((s,m)=>s+Number(m.importo||0),0);
+  const uscite  = movimenti.filter(m=>m.verso==="Uscita").reduce((s,m)=>s+Number(m.importo||0),0);
+  const saldo = entrate - uscite;
+
+  const prossime = [...allenamenti].filter(s=>s.data>=oggi()).sort((a,b)=>(a.data+a.ora).localeCompare(b.data+b.ora)).slice(0,5);
+
+  return (
+    <div className="section">
+      <div className="grid g4" style={{marginBottom:14}}>
+        <Stat k="Giocatori" v={giocatori.length} s={`${dirigenti.length} dirigenti`} />
+        <Stat k="Tesserati" v={`${tesserati}/${attivi.length}`} s="pratiche chiuse" tono={tesserati===attivi.length && attivi.length ? "mint":"amber"} />
+        <Stat k="Visite da sistemare" v={allerte.length} s="scadute o in scadenza" tono={allerte.length?"coral":"mint"} />
+        <Stat k="Saldo cassa" v={eur(saldo)} s={`${eur(entrate)} entrate · ${eur(uscite)} uscite`} tono={saldo>=0?"mint":"coral"} />
+      </div>
+
+      <div className="grid g2">
+        <div className="card">
+          <div className="card-h">
+            <h3>Visite mediche da sistemare</h3>
+            <button className="btn ghost sm" onClick={()=>vai("rosa")}>Vai alla rosa</button>
+          </div>
+          {allerte.length===0
+            ? <Vuoto titolo="Tutto in regola" testo="Nessuna visita scaduta o in scadenza nei prossimi 30 giorni." />
+            : <div className="tw"><table>
+                <tbody>{allerte.map(({m,v})=>(
+                  <tr key={m.id}>
+                    <td><strong>{m.cognome} {m.nome}</strong><div style={{fontSize:11,color:"var(--muted)"}}>{m.ruolo}</div></td>
+                    <td className="mono" style={{fontSize:12}}>{m.scadenzaVisita ? dataIT(m.scadenzaVisita) : "—"}</td>
+                    <td style={{textAlign:"right"}}><span className={"pill "+v.cls}>{v.txt}</span></td>
+                  </tr>
+                ))}</tbody>
+              </table></div>}
+        </div>
+
+        <div className="card">
+          <div className="card-h">
+            <h3>Prossimi appuntamenti</h3>
+            <button className="btn ghost sm" onClick={()=>vai("allenamenti")}>Calendario</button>
+          </div>
+          {prossime.length===0
+            ? <Vuoto titolo="Calendario libero" testo="Nessun allenamento o partita in programma." />
+            : <div className="tw"><table>
+                <tbody>{prossime.map(s=>(
+                  <tr key={s.id}>
+                    <td style={{width:90}}>
+                      <div className="mono" style={{fontWeight:700}}>{dataIT(s.data)}</div>
+                      <div className="mono" style={{fontSize:11,color:"var(--muted)"}}>{s.ora}</div>
+                    </td>
+                    <td><span className={"pill "+(s.tipo==="Partita"?"p-warn":"p-ok")}>{s.tipo}</span></td>
+                    <td style={{fontSize:12,color:"var(--muted)"}}>{s.luogo}</td>
+                  </tr>
+                ))}</tbody>
+              </table></div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ==================================================================
+   12. LOGIN + APP
+   ================================================================== */
+function Login({toast}){
+  const [email,setEmail] = useState("");
+  const [pw,setPw] = useState("");
+  const [busy,setBusy] = useState(false);
+
+  const entra = async () => {
+    setBusy(true);
+    try{ await auth.signInWithEmailAndPassword(email.trim(), pw); }
+    catch(e){ toast(e.code==="auth/invalid-credential" ? "Email o password non corretti" : e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="gate">
+      <div style={{textAlign:"center",marginBottom:22}}>
+        <h1 style={{fontSize:26,fontWeight:800,textTransform:"uppercase",letterSpacing:".02em"}}>Gestione Futsal</h1>
+        <div style={{fontSize:11,letterSpacing:".14em",textTransform:"uppercase",color:"var(--muted)",marginTop:4}}>A.S.D. Futsal Fabbrico</div>
+      </div>
+      <div className="card"><div className="card-b">
+        <Campo label="Email"><input type="email" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&entra()} /></Campo>
+        <Campo label="Password"><input type="password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&entra()} /></Campo>
+        <button className="btn" style={{width:"100%",justifyContent:"center"}} onClick={entra} disabled={busy}>
+          {busy ? "Accesso in corso…" : "Accedi"}
+        </button>
+        <div className="hint" style={{textAlign:"center",marginTop:10}}>Gli account si creano dalla console Firebase.</div>
+      </div></div>
+    </div>
+  );
+}
+
+const TAB = [
+  ["dashboard","Cruscotto"],
+  ["rosa","Rosa"],
+  ["documenti","Documenti"],
+  ["tesseramenti","Tesseramenti"],
+  ["allenamenti","Allenamenti"],
+  ["bilancio","Costi e ricavi"]
+];
+
+function App(){
+  const [utente,setUtente] = useState(null);
+  const [pronto,setPronto] = useState(false);
+  const [tab,setTab] = useState("dashboard");
+  const [msg,setMsg] = useState(null);
+
+  const toast = useCallback(t=>{ setMsg(t); setTimeout(()=>setMsg(null), 2600); },[]);
+
+  useEffect(()=>{
+    if(!CONFIGURATA){ setPronto(true); return; }
+    return auth.onAuthStateChanged(u=>{ setUtente(u); setPronto(true); });
+  },[]);
+
+  const ok = !!utente;
+  const [membri]      = useCollection(COL.membri, ok);
+  const [documenti]   = useCollection(COL.documenti, ok);
+  const [allenamenti] = useCollection(COL.allenamenti, ok);
+  const [movimenti]   = useCollection(COL.movimenti, ok);
+
+  if(!CONFIGURATA) return (
+    <div className="gate">
+      <div className="card"><div className="card-b">
+        <h3 style={{marginBottom:8}}>Manca la configurazione</h3>
+        <p style={{color:"var(--muted)",fontSize:13}}>
+          Apri il file, cerca <code>FIREBASE_CONFIG</code> in cima allo script e incolla i dati del tuo progetto
+          (Console Firebase → Impostazioni progetto → Le tue app → Web).
+        </p>
+      </div></div>
+    </div>
+  );
+
+  if(!pronto) return <div className="empty" style={{paddingTop:"20vh"}}>Caricamento…</div>;
+  if(!utente) return (<><Login toast={toast} />{msg && <div className="toast">{msg}</div>}</>);
+
+  return (
+    <>
+      <div className="topbar">
+        <div className="topbar-in">
+          <div className="userbar">
+            <span>{utente.email}</span>
+            <button className="btn ghost sm" onClick={()=>auth.signOut()}>Esci</button>
+          </div>
+          <div className="brand">
+            <h1>Gestione Futsal</h1>
+            <span>A.S.D. Futsal Fabbrico</span>
+          </div>
+          <nav className="tabs">
+            {TAB.map(([k,l])=>(
+              <button key={k} className={"tab "+(tab===k?"on":"")} onClick={()=>setTab(k)}>{l}</button>
+            ))}
+          </nav>
+        </div>
+      </div>
+
+      <div className="shell">
+        {tab==="dashboard"    && <Dashboard membri={membri} documenti={documenti} allenamenti={allenamenti} movimenti={movimenti} vai={setTab} />}
+        {tab==="rosa"         && <Rosa membri={membri} toast={toast} />}
+        {tab==="documenti"    && <Documenti documenti={documenti} membri={membri} toast={toast} />}
+        {tab==="tesseramenti" && <Tesseramenti membri={membri} documenti={documenti} toast={toast} />}
+        {tab==="allenamenti"  && <Allenamenti allenamenti={allenamenti} membri={membri} toast={toast} />}
+        {tab==="bilancio"     && <Bilancio movimenti={movimenti} membri={membri} toast={toast} />}
+      </div>
+
+      {msg && <div className="toast">{msg}</div>}
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
