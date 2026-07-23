@@ -11,6 +11,7 @@
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -162,6 +163,25 @@ tbody tr:hover{background:#FAFBFA}
 
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:100;box-shadow:var(--shadow)}
 
+/* calendario */
+.cal-head{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px}
+.cal-head span{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;text-align:center;padding:2px}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.cal-cell{min-height:88px;border:1px solid var(--line);border-radius:8px;padding:5px;background:#fff;display:flex;flex-direction:column;gap:3px;cursor:pointer;transition:border-color .12s}
+.cal-cell:hover{border-color:var(--court)}
+.cal-cell.empty{background:transparent;border-color:transparent;cursor:default}
+.cal-cell.oggi{border-color:var(--court);box-shadow:0 0 0 1px var(--court) inset}
+.cal-daynum{font-size:11px;font-weight:700;color:var(--muted);font-family:'JetBrains Mono',monospace}
+.cal-cell.oggi .cal-daynum{color:var(--court)}
+.cal-ev{font-size:10px;line-height:1.25;color:#fff;border-radius:4px;padding:2px 5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+@media(max-width:720px){
+  .cal-cell{min-height:64px;padding:3px}
+  .cal-ev{font-size:9px;padding:1px 3px}
+}
+.es-row{display:grid;grid-template-columns:1fr 78px 1.3fr auto;gap:7px;margin-bottom:7px;align-items:center}
+@media(max-width:620px){.es-row{grid-template-columns:1fr 60px auto}.es-row .es-note{grid-column:1/-1}}
+.score{font-family:'Archivo';font-weight:800;font-size:17px;letter-spacing:.02em}
+
 .gate{max-width:380px;margin:14vh auto;padding:0 16px}
 .hint{font-size:12px;color:var(--muted);margin-top:6px}
 .divider{height:1px;background:var(--line);margin:16px 0}
@@ -212,6 +232,10 @@ const TIPI_VISITA = ["Agonistica","Non agonistica","Non richiesta"];
 const TIPI_DOC = ["Visita medica","Documento identità","Tessera sanitaria","Modulo tesseramento","Liberatoria immagini","Certificato anagrafico","Altro"];
 const STATI_TESS = ["Da iniziare","Documenti raccolti","Inviato","Tesserato","Respinto"];
 const TIPI_ALLENAMENTO = ["Allenamento","Amichevole","Partita","Riunione"];
+const TIPI_MATCH = ["Partita","Amichevole"];
+const COMPETIZIONI = ["Campionato","Coppa","Torneo","Amichevole"];
+const TIPI_CARTELLINO = ["Giallo","Rosso"];
+const SQUADRA = "Futsal Fabbrico";
 const CAT_ENTRATA = ["Quote associative","Sponsor","Incassi gara","Contributi","Bar / eventi","Merchandising","Altro"];
 const CAT_USCITA  = ["Iscrizione campionato","Tesseramenti","Arbitri","Affitto palestra","Abbigliamento / materiale","Trasferte","Ammende / multe","Assicurazione","Cancelleria","Altro"];
 
@@ -244,6 +268,69 @@ function scaricaCSV(righe, nome){
   a.click();
   URL.revokeObjectURL(a.href);
 }
+
+/* Excel vero (.xlsx) via SheetJS. Se la libreria non ha caricato, ripiega su CSV. */
+function scaricaExcel(fogli, nome){
+  if(typeof XLSX === "undefined"){
+    scaricaCSV(fogli[0].righe, nome.replace(/\.xlsx$/,".csv"));
+    return;
+  }
+  const wb = XLSX.utils.book_new();
+  fogli.forEach(f=>{
+    const ws = XLSX.utils.aoa_to_sheet(f.righe);
+    XLSX.utils.book_append_sheet(wb, ws, (f.nome||"Foglio").slice(0,31));
+  });
+  XLSX.writeFile(wb, nome);
+}
+
+/* PDF tramite la stampa del browser: apre una finestra impaginata e lancia la stampa.
+   Da lì l'utente sceglie "Salva come PDF". Zero librerie, zero costi. */
+function stampaPDF(titolo, htmlInterno){
+  const w = window.open("", "_blank");
+  if(!w){ alert("Per esportare in PDF abilita i popup per questo sito."); return; }
+  w.document.write(
+    '<!DOCTYPE html><html lang="it"><head><meta charset="utf-8"><title>'+titolo+'</title><style>'+
+    'body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,sans-serif;color:#0E1A18;padding:26px;max-width:820px;margin:0 auto}'+
+    'h1{font-size:21px;margin:0 0 2px;text-transform:uppercase;letter-spacing:.01em}'+
+    'h2{font-size:13px;margin:22px 0 8px;color:#0F3D3A;text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid #0F3D3A;padding-bottom:4px}'+
+    '.meta{color:#6B7A75;font-size:13px;margin-bottom:4px}'+
+    '.brand{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#6B7A75;margin-bottom:14px}'+
+    'table{width:100%;border-collapse:collapse;font-size:12px;margin:6px 0 10px}'+
+    'th{background:#0F3D3A;color:#fff;text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.04em}'+
+    'td{padding:6px 8px;border-bottom:1px solid #e2e8e5}'+
+    'tr.tot td{font-weight:700;border-top:2px solid #0F3D3A}'+
+    '.r{text-align:right} p{font-size:13px;line-height:1.5}'+
+    '.noprint{margin-bottom:18px} .btn{background:#0F3D3A;color:#fff;border:0;padding:9px 18px;border-radius:6px;font-size:14px;cursor:pointer}'+
+    '@media print{.noprint{display:none}}'+
+    '</style></head><body>'+
+    '<div class="noprint"><button class="btn" onclick="window.print()">Stampa / Salva come PDF</button></div>'+
+    '<div class="brand">A.S.D. '+SQUADRA+'</div>'+
+    htmlInterno+
+    '</body></html>'
+  );
+  w.document.close();
+  setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 500);
+}
+const esc = s => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+/* Calendario */
+const MESI = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+const GIORNI_SETT = ["Lun","Mar","Mer","Gio","Ven","Sab","Dom"];
+function grigliaMese(anno, mese){
+  const primo = new Date(anno, mese, 1);
+  const offset = (primo.getDay()+6)%7;               // lunedì = 0
+  const giorniMese = new Date(anno, mese+1, 0).getDate();
+  const celle = [];
+  for(let i=0;i<offset;i++) celle.push(null);
+  for(let d=1; d<=giorniMese; d++)
+    celle.push(`${anno}-${String(mese+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`);
+  while(celle.length % 7 !== 0) celle.push(null);
+  const settimane = [];
+  for(let i=0;i<celle.length;i+=7) settimane.push(celle.slice(i,i+7));
+  return settimane;
+}
+const coloreEvento = t => t==="Partita" ? "var(--coral)" : t==="Amichevole" ? "var(--amber)" : t==="Riunione" ? "var(--muted)" : "var(--mint)";
+const isMatch = t => TIPI_MATCH.includes(t);
 
 /* Immagini compresse lato client, PDF passano così come sono.
    Limite Firestore: 1 MB per documento -> teniamo il margine a 700 KB. */
@@ -788,7 +875,7 @@ function Tesseramenti({membri, documenti, toast}){
 /* ==================================================================
    9. ALLENAMENTI
    ================================================================== */
-const SESS_VUOTA = { data:oggi(), ora:"21:00", tipo:"Allenamento", luogo:"Palestra comunale — Fabbrico", note:"", presenti:[] };
+const SESS_VUOTA = { data:oggi(), ora:"21:00", tipo:"Allenamento", luogo:"Palestra comunale — Fabbrico", note:"", presenti:[], esercizi:[] };
 
 function Allenamenti({allenamenti, membri, toast}){
   const [modale,setModale] = useState(null);
@@ -797,7 +884,10 @@ function Allenamenti({allenamenti, membri, toast}){
   const giocatori = membri.filter(m=>m.attivo!==false && m.tipo==="Giocatore")
     .sort((a,b)=>(a.cognome||"").localeCompare(b.cognome||""));
 
-  const lista = useMemo(()=>[...allenamenti].sort((a,b)=>(b.data+b.ora).localeCompare(a.data+a.ora)),[allenamenti]);
+  // Solo allenamenti veri (partite e amichevoli stanno in Calendario/Risultati)
+  const lista = useMemo(()=>[...allenamenti]
+    .filter(s=>s.tipo==="Allenamento" || s.tipo==="Riunione")
+    .sort((a,b)=>(b.data+b.ora).localeCompare(a.data+a.ora)),[allenamenti]);
   const passate = lista.filter(s=>s.data <= oggi());
 
   const stats = useMemo(()=>{
@@ -807,6 +897,8 @@ function Allenamenti({allenamenti, membri, toast}){
       return {g, p, tot, pct: tot ? Math.round(p/tot*100) : 0};
     }).sort((a,b)=>b.pct-a.pct);
   },[passate,giocatori]);
+
+  const totMin = (modale?.esercizi||[]).reduce((s,e)=>s+(Number(e.durata)||0),0);
 
   const conferma = async () => {
     const {id, ...dati} = modale;
@@ -824,36 +916,86 @@ function Allenamenti({allenamenti, membri, toast}){
     await salva(COL.allenamenti, presenze.id, {presenti});
   };
 
+  // builder esercizi
+  const aggiungiEs = () => setModale(m=>({...m, esercizi:[...(m.esercizi||[]), {id:uid(), nome:"", durata:"", note:""}]}));
+  const setEs = (id,k,v) => setModale(m=>({...m, esercizi:(m.esercizi||[]).map(e=>e.id===id?{...e,[k]:v}:e)}));
+  const rimuoviEs = id => setModale(m=>({...m, esercizi:(m.esercizi||[]).filter(e=>e.id!==id)}));
+  const spostaEs = (i,dir) => setModale(m=>{
+    const arr=[...(m.esercizi||[])]; const j=i+dir;
+    if(j<0||j>=arr.length) return m;
+    [arr[i],arr[j]]=[arr[j],arr[i]]; return {...m,esercizi:arr};
+  });
+
+  const nomiPresenti = s => (s.presenti||[]).map(id=>{const m=membri.find(x=>x.id===id);return m?`${m.cognome} ${m.nome}`:null;}).filter(Boolean);
+
+  const esportaPDF = s => {
+    const es = s.esercizi||[];
+    const tot = es.reduce((a,e)=>a+(Number(e.durata)||0),0);
+    const rows = es.map((e,i)=>`<tr><td>${i+1}</td><td>${esc(e.nome)||"—"}</td><td class="r">${e.durata?esc(e.durata)+"'":"—"}</td><td>${esc(e.note)}</td></tr>`).join("");
+    const pres = nomiPresenti(s);
+    const html =
+      `<h1>${esc(s.tipo)} — ${dataIT(s.data)}</h1>`+
+      `<div class="meta">${esc(s.ora)||""}${s.luogo?" · "+esc(s.luogo):""}</div>`+
+      `<h2>Programma esercizi</h2>`+
+      `<table><thead><tr><th>#</th><th>Esercizio</th><th class="r">Durata</th><th>Note</th></tr></thead><tbody>`+
+      (rows||'<tr><td colspan="4">Nessun esercizio inserito</td></tr>')+
+      `<tr class="tot"><td colspan="2">Totale stimato</td><td class="r">${tot}'</td><td></td></tr></tbody></table>`+
+      (s.note?`<h2>Note della seduta</h2><p>${esc(s.note)}</p>`:"")+
+      `<h2>Presenti (${pres.length})</h2><p>${pres.map(esc).join(" · ")||"—"}</p>`;
+    stampaPDF(`Allenamento ${dataIT(s.data)}`, html);
+  };
+
+  const esportaExcel = s => {
+    const es = s.esercizi||[];
+    const righe = [
+      [`${s.tipo} — ${dataIT(s.data)}`],
+      ["Ora", s.ora||"", "Luogo", s.luogo||""],
+      [],
+      ["#","Esercizio","Durata (min)","Note"],
+      ...es.map((e,i)=>[i+1, e.nome||"", Number(e.durata)||0, e.note||""]),
+      ["","Totale", es.reduce((a,e)=>a+(Number(e.durata)||0),0), ""],
+      [],
+      [`Presenti (${nomiPresenti(s).length})`],
+      ...nomiPresenti(s).map(n=>[n])
+    ];
+    scaricaExcel([{nome:"Allenamento", righe}], `allenamento_${s.data}.xlsx`);
+  };
+
   return (
     <div className="section">
-      <div className="grid" style={{gridTemplateColumns:"1.5fr 1fr"}}>
+      <div className="grid" style={{gridTemplateColumns:"1.6fr 1fr"}}>
         <div className="card">
           <div className="card-h">
-            <h3>Sessioni — {lista.length}</h3>
-            <button className="btn sm" onClick={()=>setModale({...SESS_VUOTA})}>+ Nuova sessione</button>
+            <h3>Allenamenti — {lista.length}</h3>
+            <button className="btn sm" onClick={()=>setModale({...SESS_VUOTA})}>+ Nuovo allenamento</button>
           </div>
           {lista.length===0
-            ? <Vuoto titolo="Nessuna sessione" testo="Crea allenamenti e partite, poi registra le presenze." />
+            ? <Vuoto titolo="Nessun allenamento" testo="Crea una seduta, costruisci gli esercizi e registra le presenze." />
             : <div className="tw"><table>
-                <thead><tr><th>Data</th><th>Tipo</th><th>Luogo</th><th className="num">Presenti</th><th></th></tr></thead>
+                <thead><tr><th>Data</th><th>Programma</th><th className="num">Presenti</th><th></th></tr></thead>
                 <tbody>{lista.map(s=>{
                   const futura = s.data > oggi();
                   const n = (s.presenti||[]).length;
+                  const es = s.esercizi||[];
+                  const min = es.reduce((a,e)=>a+(Number(e.durata)||0),0);
                   return (
                     <tr key={s.id}>
                       <td>
                         <strong className="mono">{dataIT(s.data)}</strong>
                         <div style={{fontSize:11,color:"var(--muted)"}} className="mono">{s.ora}</div>
-                      </td>
-                      <td>
-                        <span className={"pill "+(s.tipo==="Partita"?"p-warn":s.tipo==="Amichevole"?"p-neutral":"p-ok")}>{s.tipo}</span>
+                        {s.tipo==="Riunione" && <span className="pill p-neutral" style={{marginTop:3}}>Riunione</span>}
                         {futura && <div style={{fontSize:11,color:"var(--muted)",marginTop:3}}>in programma</div>}
                       </td>
-                      <td style={{fontSize:12}}>{s.luogo}</td>
+                      <td style={{fontSize:12}}>
+                        {es.length ? <span>{es.length} eserc. · <span className="mono">{min}'</span></span> : <span style={{color:"var(--muted)"}}>—</span>}
+                        {s.luogo && <div style={{color:"var(--muted)",fontSize:11}}>{s.luogo}</div>}
+                      </td>
                       <td className="num"><strong>{n}</strong><span style={{color:"var(--muted)"}}>/{giocatori.length}</span></td>
                       <td style={{whiteSpace:"nowrap"}}>
                         <button className="btn ghost sm" onClick={()=>setPresenze(s)}>Presenze</button>{" "}
-                        <button className="btn ghost sm" onClick={()=>setModale({...SESS_VUOTA,...s})}>Modifica</button>{" "}
+                        <button className="btn ghost sm" onClick={()=>setModale({...SESS_VUOTA,...s})}>Piano</button>{" "}
+                        <button className="btn ghost sm" title="Esporta PDF" onClick={()=>esportaPDF(s)}>PDF</button>{" "}
+                        <button className="btn ghost sm" title="Esporta Excel" onClick={()=>esportaExcel(s)}>XLS</button>{" "}
                         <button className="btn danger sm" onClick={()=>rimuovi(s)}>×</button>
                       </td>
                     </tr>
@@ -881,14 +1023,43 @@ function Allenamenti({allenamenti, membri, toast}){
       </div>
 
       {modale && (
-        <Modale titolo={modale.id?"Modifica sessione":"Nuova sessione"} onChiudi={()=>setModale(null)} onSalva={conferma}>
+        <Modale titolo={modale.id?"Piano di allenamento":"Nuovo allenamento"} onChiudi={()=>setModale(null)} onSalva={conferma} salvaLabel="Salva" larghezza={720}>
           <div className="row g3">
             <Campo label="Data"><input type="date" value={modale.data} onChange={e=>setModale(m=>({...m,data:e.target.value}))} /></Campo>
             <Campo label="Ora"><input type="time" value={modale.ora} onChange={e=>setModale(m=>({...m,ora:e.target.value}))} /></Campo>
-            <Campo label="Tipo"><select value={modale.tipo} onChange={e=>setModale(m=>({...m,tipo:e.target.value}))}>{TIPI_ALLENAMENTO.map(t=><option key={t}>{t}</option>)}</select></Campo>
+            <Campo label="Tipo"><select value={modale.tipo} onChange={e=>setModale(m=>({...m,tipo:e.target.value}))}><option>Allenamento</option><option>Riunione</option></select></Campo>
           </div>
           <Campo label="Luogo"><input value={modale.luogo} onChange={e=>setModale(m=>({...m,luogo:e.target.value}))} /></Campo>
-          <Campo label="Note"><textarea rows="2" value={modale.note} onChange={e=>setModale(m=>({...m,note:e.target.value}))} /></Campo>
+
+          <div className="divider"></div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <h4 style={{fontSize:12,textTransform:"uppercase",letterSpacing:".07em",color:"var(--muted)"}}>
+              Esercizi <span className="mono" style={{color:"var(--court)",marginLeft:6}}>{totMin}' totali</span>
+            </h4>
+            <button className="btn ghost sm" onClick={aggiungiEs}>+ Esercizio</button>
+          </div>
+          {(modale.esercizi||[]).length===0 && <div className="hint" style={{marginBottom:10}}>Nessun esercizio. Aggiungi il primo per costruire la seduta.</div>}
+          {(modale.esercizi||[]).map((e,i)=>(
+            <div key={e.id} className="es-row">
+              <input placeholder={"Esercizio "+(i+1)} value={e.nome} onChange={ev=>setEs(e.id,"nome",ev.target.value)} />
+              <input type="number" min="0" placeholder="min" value={e.durata} onChange={ev=>setEs(e.id,"durata",ev.target.value)} />
+              <input className="es-note" placeholder="Note (serie, obiettivo…)" value={e.note} onChange={ev=>setEs(e.id,"note",ev.target.value)} />
+              <div style={{display:"flex",gap:3}}>
+                <button className="btn ghost sm" title="Su" onClick={()=>spostaEs(i,-1)} disabled={i===0}>↑</button>
+                <button className="btn ghost sm" title="Giù" onClick={()=>spostaEs(i,1)} disabled={i===(modale.esercizi.length-1)}>↓</button>
+                <button className="btn danger sm" onClick={()=>rimuoviEs(e.id)}>×</button>
+              </div>
+            </div>
+          ))}
+
+          <div className="divider"></div>
+          <Campo label="Note della seduta"><textarea rows="2" value={modale.note} onChange={e=>setModale(m=>({...m,note:e.target.value}))} /></Campo>
+          {modale.id && (
+            <div style={{display:"flex",gap:8,marginTop:4}}>
+              <button className="btn ghost sm" onClick={()=>esportaPDF(modale)}>Esporta PDF</button>
+              <button className="btn ghost sm" onClick={()=>esportaExcel(modale)}>Esporta Excel</button>
+            </div>
+          )}
         </Modale>
       )}
 
@@ -907,6 +1078,371 @@ function Allenamenti({allenamenti, membri, toast}){
             })}
           </div>
           {giocatori.length===0 && <Vuoto titolo="Nessun giocatore attivo" testo="Aggiungili dalla sezione Rosa." />}
+        </Modale>
+      )}
+    </div>
+  );
+}
+
+/* ==================================================================
+   9b. CALENDARIO
+   ================================================================== */
+const EVENTO_VUOTO = { data:oggi(), ora:"21:00", tipo:"Partita", luogo:"", note:"", avversario:"", casa:true, competizione:"Campionato", giornata:"" };
+
+function Calendario({allenamenti, toast, vai}){
+  const now = new Date();
+  const [anno,setAnno] = useState(now.getFullYear());
+  const [mese,setMese] = useState(now.getMonth());
+  const [modale,setModale] = useState(null);
+
+  const perGiorno = useMemo(()=>{
+    const map = {};
+    allenamenti.forEach(e=>{ (map[e.data] = map[e.data]||[]).push(e); });
+    Object.values(map).forEach(a=>a.sort((x,y)=>(x.ora||"").localeCompare(y.ora||"")));
+    return map;
+  },[allenamenti]);
+
+  const settimane = useMemo(()=>grigliaMese(anno,mese),[anno,mese]);
+
+  const cambiaMese = d => {
+    let m = mese+d, a = anno;
+    if(m<0){ m=11; a--; } if(m>11){ m=0; a++; }
+    setMese(m); setAnno(a);
+  };
+  const vaiOggi = () => { setMese(now.getMonth()); setAnno(now.getFullYear()); };
+
+  const set = (k,v)=>setModale(m=>({...m,[k]:v}));
+  const conferma = async () => {
+    const {id, ...dati} = modale;
+    if(!dati.data) return toast("Serve la data");
+    if(isMatch(dati.tipo) && !dati.avversario.trim()) return toast("Indica l'avversario");
+    await salva(COL.allenamenti, id, dati);
+    setModale(null); toast("Evento salvato");
+  };
+  const rimuovi = async () => {
+    if(confirm(`Elimini l'evento del ${dataIT(modale.data)}?`)){ await elimina(COL.allenamenti, modale.id); setModale(null); toast("Evento eliminato"); }
+  };
+
+  const esportaExcel = () => {
+    const righe = [
+      ["Data","Ora","Tipo","Competizione","Avversario","Campo","Luogo","Note"],
+      ...[...allenamenti].sort((a,b)=>(a.data+a.ora).localeCompare(b.data+b.ora)).map(e=>[
+        dataIT(e.data), e.ora||"", e.tipo, isMatch(e.tipo)?(e.competizione||""):"",
+        isMatch(e.tipo)?(e.avversario||""):"", isMatch(e.tipo)?(e.casa?"Casa":"Trasferta"):"", e.luogo||"", e.note||""
+      ])
+    ];
+    scaricaExcel([{nome:"Calendario", righe}], `calendario_${SQUADRA.toLowerCase().replace(/ /g,"_")}.xlsx`);
+  };
+  const esportaPDF = () => {
+    const ord = [...allenamenti].filter(e=>e.data>=oggi()).sort((a,b)=>(a.data+a.ora).localeCompare(b.data+b.ora));
+    const rows = ord.map(e=>{
+      const dett = isMatch(e.tipo) ? `${esc(e.competizione)} · ${e.casa?"vs":"@"} ${esc(e.avversario)}` : esc(e.luogo);
+      return `<tr><td class="r">${dataIT(e.data)}</td><td>${esc(e.ora)}</td><td>${esc(e.tipo)}</td><td>${dett}</td></tr>`;
+    }).join("");
+    stampaPDF("Calendario "+SQUADRA,
+      `<h1>Calendario</h1><div class="meta">Eventi in programma dal ${dataIT(oggi())}</div>`+
+      `<table><thead><tr><th class="r">Data</th><th>Ora</th><th>Tipo</th><th>Dettaglio</th></tr></thead>`+
+      `<tbody>${rows||'<tr><td colspan="4">Nessun evento in programma</td></tr>'}</tbody></table>`);
+  };
+
+  const inMese = allenamenti.filter(e=>e.data.startsWith(`${anno}-${String(mese+1).padStart(2,"0")}`)).length;
+
+  return (
+    <div className="section">
+      <div className="card">
+        <div className="card-h">
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <button className="btn ghost sm" onClick={()=>cambiaMese(-1)}>←</button>
+            <h3 style={{minWidth:150,textAlign:"center"}}>{MESI[mese]} {anno}</h3>
+            <button className="btn ghost sm" onClick={()=>cambiaMese(1)}>→</button>
+            <button className="btn ghost sm" onClick={vaiOggi}>Oggi</button>
+            <span style={{fontSize:12,color:"var(--muted)"}}>{inMese} eventi</span>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button className="btn ghost sm" onClick={esportaPDF}>PDF</button>
+            <button className="btn ghost sm" onClick={esportaExcel}>Excel</button>
+            <button className="btn sm" onClick={()=>setModale({...EVENTO_VUOTO})}>+ Evento</button>
+          </div>
+        </div>
+        <div className="card-b">
+          <div className="cal-head">{GIORNI_SETT.map(g=><span key={g}>{g}</span>)}</div>
+          {settimane.map((sett,wi)=>(
+            <div className="cal-grid" key={wi} style={{marginBottom:6}}>
+              {sett.map((d,di)=>{
+                if(!d) return <div key={di} className="cal-cell empty"></div>;
+                const evs = perGiorno[d]||[];
+                return (
+                  <div key={di} className={"cal-cell"+(d===oggi()?" oggi":"")} onClick={()=>setModale({...EVENTO_VUOTO, data:d, tipo:"Allenamento", ora:"21:00"})}>
+                    <span className="cal-daynum">{+d.slice(-2)}</span>
+                    {evs.map(e=>(
+                      <div key={e.id} className="cal-ev" style={{background:coloreEvento(e.tipo)}}
+                        onClick={ev=>{ev.stopPropagation(); setModale({...EVENTO_VUOTO, ...e});}}
+                        title={`${e.ora||""} ${e.tipo}${isMatch(e.tipo)?" · "+(e.avversario||""):""}`}>
+                        {e.ora?e.ora+" ":""}{isMatch(e.tipo)?(e.casa?"vs ":"@ ")+(e.avversario||e.tipo):e.tipo}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+          <div style={{display:"flex",gap:16,marginTop:12,fontSize:11,color:"var(--muted)",flexWrap:"wrap"}}>
+            {[["Allenamento","var(--mint)"],["Partita","var(--coral)"],["Amichevole","var(--amber)"],["Riunione","var(--muted)"]].map(([l,c])=>(
+              <span key={l}><i style={{display:"inline-block",width:9,height:9,background:c,borderRadius:2,marginRight:5}}></i>{l}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {modale && (
+        <Modale titolo={modale.id?"Modifica evento":"Nuovo evento"} onChiudi={()=>setModale(null)} onSalva={conferma}>
+          <div className="row g3">
+            <Campo label="Data"><input type="date" value={modale.data} onChange={e=>set("data",e.target.value)} /></Campo>
+            <Campo label="Ora"><input type="time" value={modale.ora} onChange={e=>set("ora",e.target.value)} /></Campo>
+            <Campo label="Tipo"><select value={modale.tipo} onChange={e=>set("tipo",e.target.value)}>{TIPI_ALLENAMENTO.map(t=><option key={t}>{t}</option>)}</select></Campo>
+          </div>
+          {isMatch(modale.tipo) ? (
+            <>
+              <div className="row g3">
+                <Campo label="Competizione"><select value={modale.competizione} onChange={e=>set("competizione",e.target.value)}>{COMPETIZIONI.map(c=><option key={c}>{c}</option>)}</select></Campo>
+                <Campo label="Campo"><select value={modale.casa?"casa":"trasferta"} onChange={e=>set("casa",e.target.value==="casa")}><option value="casa">Casa</option><option value="trasferta">Trasferta</option></select></Campo>
+                <Campo label="Giornata"><input value={modale.giornata} onChange={e=>set("giornata",e.target.value)} placeholder="es. 5ª" /></Campo>
+              </div>
+              <Campo label="Avversario"><input value={modale.avversario} onChange={e=>set("avversario",e.target.value)} /></Campo>
+            </>
+          ) : null}
+          <Campo label="Luogo"><input value={modale.luogo} onChange={e=>set("luogo",e.target.value)} /></Campo>
+          <Campo label="Note"><textarea rows="2" value={modale.note} onChange={e=>set("note",e.target.value)} /></Campo>
+          {isMatch(modale.tipo) && modale.id && (
+            <div className="hint">Il risultato e i marcatori si inseriscono nella sezione <button className="btn ghost sm" onClick={()=>{setModale(null);vai("risultati");}}>Risultati</button></div>
+          )}
+          {modale.id && (
+            <div style={{marginTop:12}}><button className="btn danger sm" onClick={rimuovi}>Elimina evento</button></div>
+          )}
+        </Modale>
+      )}
+    </div>
+  );
+}
+
+/* ==================================================================
+   9c. RISULTATI
+   ================================================================== */
+function Risultati({allenamenti, membri, toast}){
+  const [modale,setModale] = useState(null);
+
+  const giocatori = membri.filter(m=>m.tipo==="Giocatore").sort((a,b)=>(a.cognome||"").localeCompare(b.cognome||""));
+  const nomeG = id => { const m=membri.find(x=>x.id===id); return m?`${m.cognome} ${m.nome}`:"—"; };
+
+  const partite = useMemo(()=>allenamenti.filter(e=>isMatch(e.tipo))
+    .sort((a,b)=>(b.data+b.ora).localeCompare(a.data+a.ora)),[allenamenti]);
+
+  const daCompilare = partite.filter(p=>!p.giocata && p.data<=oggi());
+  const giocate = partite.filter(p=>p.giocata);
+  const inProgramma = partite.filter(p=>!p.giocata && p.data>oggi());
+
+  // classifiche
+  const cls = useMemo(()=>{
+    const gol={}, ass={}, gialli={}, rossi={};
+    let v=0,n=0,s=0,gf=0,gsub=0;
+    giocate.forEach(p=>{
+      const nostri=Number(p.golNostri)||0, loro=Number(p.golLoro)||0;
+      gf+=nostri; gsub+=loro;
+      if(nostri>loro)v++; else if(nostri===loro)n++; else s++;
+      (p.marcatori||[]).forEach(m=>{ if(m.giocatoreId){gol[m.giocatoreId]=(gol[m.giocatoreId]||0)+1;} if(m.assistId){ass[m.assistId]=(ass[m.assistId]||0)+1;} });
+      (p.cartellini||[]).forEach(c=>{ if(c.tipo==="Rosso")rossi[c.giocatoreId]=(rossi[c.giocatoreId]||0)+1; else gialli[c.giocatoreId]=(gialli[c.giocatoreId]||0)+1; });
+    });
+    const top = o => Object.entries(o).sort((a,b)=>b[1]-a[1]);
+    return {gol:top(gol), ass:top(ass), gialli, rossi, v,n,s,gf,gsub};
+  },[giocate]);
+
+  const apri = p => setModale({
+    golNostri:"", golLoro:"", marcatori:[], cartellini:[], ...p,
+    golNostri: p.golNostri ?? "", golLoro: p.golLoro ?? "",
+    marcatori: p.marcatori||[], cartellini: p.cartellini||[]
+  });
+
+  const set = (k,v)=>setModale(m=>({...m,[k]:v}));
+  const addMarc = ()=>setModale(m=>({...m,marcatori:[...m.marcatori,{id:uid(),giocatoreId:"",assistId:"",minuto:""}]}));
+  const setMarc = (id,k,v)=>setModale(m=>({...m,marcatori:m.marcatori.map(x=>x.id===id?{...x,[k]:v}:x)}));
+  const delMarc = id=>setModale(m=>({...m,marcatori:m.marcatori.filter(x=>x.id!==id)}));
+  const addCart = ()=>setModale(m=>({...m,cartellini:[...m.cartellini,{id:uid(),giocatoreId:"",tipo:"Giallo",minuto:""}]}));
+  const setCart = (id,k,v)=>setModale(m=>({...m,cartellini:m.cartellini.map(x=>x.id===id?{...x,[k]:v}:x)}));
+  const delCart = id=>setModale(m=>({...m,cartellini:m.cartellini.filter(x=>x.id!==id)}));
+
+  const salvaReferto = async () => {
+    const {id, ...d} = modale;
+    d.golNostri = Number(d.golNostri)||0;
+    d.golLoro = Number(d.golLoro)||0;
+    d.giocata = true;
+    await salva(COL.allenamenti, id, d);
+    setModale(null); toast("Referto salvato");
+  };
+
+  const scoreLabel = p => {
+    if(!p.giocata) return "—";
+    const nostri=Number(p.golNostri)||0, loro=Number(p.golLoro)||0;
+    return p.casa ? `${nostri}–${loro}` : `${loro}–${nostri}`;
+  };
+  const esito = p => {
+    if(!p.giocata) return null;
+    const nostri=Number(p.golNostri)||0, loro=Number(p.golLoro)||0;
+    if(nostri>loro) return {t:"V",cls:"p-ok"}; if(nostri===loro) return {t:"N",cls:"p-warn"}; return {t:"P",cls:"p-bad"};
+  };
+
+  const esportaExcel = () => {
+    const ref = [
+      ["Data","Competizione","Casa/Tras.","Avversario","Ris. (noi-loro)","Esito","Marcatori","Cartellini"],
+      ...partite.filter(p=>p.giocata).map(p=>[
+        dataIT(p.data), p.competizione||"", p.casa?"Casa":"Trasferta", p.avversario||"",
+        `${Number(p.golNostri)||0}-${Number(p.golLoro)||0}`,
+        (esito(p)||{}).t||"",
+        (p.marcatori||[]).map(m=>nomeG(m.giocatoreId)+(m.minuto?` ${m.minuto}'`:"")).join("; "),
+        (p.cartellini||[]).map(c=>nomeG(c.giocatoreId)+" "+c.tipo).join("; ")
+      ])
+    ];
+    const marcatori = [["Giocatore","Gol"], ...cls.gol.map(([id,n])=>[nomeG(id),n])];
+    const assist = [["Giocatore","Assist"], ...cls.ass.map(([id,n])=>[nomeG(id),n])];
+    scaricaExcel([
+      {nome:"Referti", righe:ref},
+      {nome:"Marcatori", righe:marcatori},
+      {nome:"Assist", righe:assist}
+    ], `risultati_${SQUADRA.toLowerCase().replace(/ /g,"_")}.xlsx`);
+  };
+
+  const Riga = ({p, azione}) => {
+    const e = esito(p);
+    return (
+      <tr>
+        <td><strong className="mono">{dataIT(p.data)}</strong><div style={{fontSize:11,color:"var(--muted)"}}>{p.competizione}{p.giornata?` · ${p.giornata}`:""}</div></td>
+        <td>{p.casa? <span><strong>{SQUADRA}</strong> <span style={{color:"var(--muted)"}}>vs</span> {p.avversario}</span>
+                    : <span>{p.avversario} <span style={{color:"var(--muted)"}}>vs</span> <strong>{SQUADRA}</strong></span>}</td>
+        <td className="score">{scoreLabel(p)}</td>
+        <td>{e && <span className={"pill "+e.cls}>{e.t}</span>}</td>
+        <td style={{whiteSpace:"nowrap"}}>{azione}</td>
+      </tr>
+    );
+  };
+
+  return (
+    <div className="section">
+      <div className="grid g4" style={{marginBottom:14}}>
+        <Stat k="Bilancio" v={`${cls.v}V ${cls.n}N ${cls.s}P`} s={`${giocate.length} gare giocate`} />
+        <Stat k="Gol fatti" v={cls.gf} s={`${cls.gsub} subiti`} tono="mint" />
+        <Stat k="Differenza reti" v={(cls.gf-cls.gsub>=0?"+":"")+(cls.gf-cls.gsub)} tono={cls.gf-cls.gsub>=0?"mint":"coral"} />
+        <Stat k="Da compilare" v={daCompilare.length} s="partite giocate senza referto" tono={daCompilare.length?"amber":null} />
+      </div>
+
+      {daCompilare.length>0 && (
+        <div className="card" style={{marginBottom:14}}>
+          <div className="card-h"><h3>Da compilare</h3></div>
+          <div className="tw"><table><tbody>
+            {daCompilare.map(p=><Riga key={p.id} p={p} azione={<button className="btn sm" onClick={()=>apri(p)}>Inserisci risultato</button>} />)}
+          </tbody></table></div>
+        </div>
+      )}
+
+      <div className="grid" style={{gridTemplateColumns:"1.7fr 1fr"}}>
+        <div className="card">
+          <div className="card-h">
+            <h3>Referti — {giocate.length}</h3>
+            <button className="btn ghost sm" onClick={esportaExcel}>Excel</button>
+          </div>
+          {giocate.length===0
+            ? <Vuoto titolo="Nessun referto" testo="Le partite le crei nel Calendario; qui inserisci risultati e marcatori." />
+            : <div className="tw"><table>
+                <thead><tr><th>Data</th><th>Partita</th><th>Ris.</th><th></th><th></th></tr></thead>
+                <tbody>{giocate.map(p=><Riga key={p.id} p={p} azione={<button className="btn ghost sm" onClick={()=>apri(p)}>Dettaglio</button>} />)}</tbody>
+              </table></div>}
+
+          {inProgramma.length>0 && <>
+            <div className="card-h" style={{borderTop:"1px solid var(--line)"}}><h3>In programma</h3></div>
+            <div className="tw"><table><tbody>
+              {inProgramma.map(p=>(
+                <tr key={p.id}>
+                  <td><strong className="mono">{dataIT(p.data)}</strong><div style={{fontSize:11,color:"var(--muted)"}}>{p.competizione}</div></td>
+                  <td>{p.casa?"vs ":"@ "}{p.avversario}</td>
+                  <td style={{color:"var(--muted)",fontSize:12}}>{p.ora}</td>
+                </tr>
+              ))}
+            </tbody></table></div>
+          </>}
+        </div>
+
+        <div className="card">
+          <div className="card-h"><h3>Classifica marcatori</h3></div>
+          {cls.gol.length===0
+            ? <Vuoto titolo="Nessun gol" testo="Compare dopo il primo referto." />
+            : <div className="card-b">
+                {cls.gol.slice(0,12).map(([id,n],i)=>(
+                  <div key={id} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid #F0F3F1",fontSize:13}}>
+                    <span><span className="mono" style={{color:"var(--muted)",marginRight:8}}>{i+1}</span>{nomeG(id)}</span>
+                    <strong className="mono">{n}</strong>
+                  </div>
+                ))}
+                {cls.ass.length>0 && <>
+                  <h4 style={{fontSize:11,textTransform:"uppercase",letterSpacing:".06em",color:"var(--muted)",margin:"14px 0 6px"}}>Assist</h4>
+                  {cls.ass.slice(0,8).map(([id,n])=>(
+                    <div key={id} style={{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:13}}>
+                      <span>{nomeG(id)}</span><strong className="mono">{n}</strong>
+                    </div>
+                  ))}
+                </>}
+              </div>}
+        </div>
+      </div>
+
+      {modale && (
+        <Modale titolo={`Referto — ${modale.avversario||"partita"}`} onChiudi={()=>setModale(null)} onSalva={salvaReferto} salvaLabel="Salva referto" larghezza={680}>
+          <div style={{textAlign:"center",marginBottom:14,fontSize:13,color:"var(--muted)"}}>
+            {dataIT(modale.data)} · {modale.competizione}{modale.giornata?` · ${modale.giornata}`:""} · {modale.casa?"in casa":"in trasferta"}
+          </div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:14,marginBottom:6}}>
+            <div style={{textAlign:"right",flex:1,fontWeight:700}}>{modale.casa?SQUADRA:modale.avversario}</div>
+            <input type="number" min="0" style={{width:60,textAlign:"center",fontWeight:700,fontSize:18}} value={modale.casa?modale.golNostri:modale.golLoro}
+              onChange={e=>set(modale.casa?"golNostri":"golLoro", e.target.value)} />
+            <span style={{color:"var(--muted)"}}>–</span>
+            <input type="number" min="0" style={{width:60,textAlign:"center",fontWeight:700,fontSize:18}} value={modale.casa?modale.golLoro:modale.golNostri}
+              onChange={e=>set(modale.casa?"golLoro":"golNostri", e.target.value)} />
+            <div style={{flex:1,fontWeight:700}}>{modale.casa?modale.avversario:SQUADRA}</div>
+          </div>
+          <div className="hint" style={{textAlign:"center",marginBottom:14}}>Il riquadro di sinistra è sempre la squadra di casa.</div>
+
+          <div className="divider"></div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <h4 style={{fontSize:12,textTransform:"uppercase",letterSpacing:".06em",color:"var(--muted)"}}>Marcatori e assist</h4>
+            <button className="btn ghost sm" onClick={addMarc}>+ Gol</button>
+          </div>
+          {modale.marcatori.length===0 && <div className="hint" style={{marginBottom:8}}>Nessun gol nostro registrato.</div>}
+          {modale.marcatori.map(m=>(
+            <div key={m.id} style={{display:"grid",gridTemplateColumns:"1.4fr 1.4fr 60px auto",gap:7,marginBottom:7,alignItems:"center"}}>
+              <select value={m.giocatoreId} onChange={e=>setMarc(m.id,"giocatoreId",e.target.value)}>
+                <option value="">Marcatore…</option>{giocatori.map(g=><option key={g.id} value={g.id}>{g.cognome} {g.nome}</option>)}
+              </select>
+              <select value={m.assistId} onChange={e=>setMarc(m.id,"assistId",e.target.value)}>
+                <option value="">Assist (opz.)</option>{giocatori.map(g=><option key={g.id} value={g.id}>{g.cognome} {g.nome}</option>)}
+              </select>
+              <input type="number" min="0" placeholder="min" value={m.minuto} onChange={e=>setMarc(m.id,"minuto",e.target.value)} />
+              <button className="btn danger sm" onClick={()=>delMarc(m.id)}>×</button>
+            </div>
+          ))}
+
+          <div className="divider"></div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <h4 style={{fontSize:12,textTransform:"uppercase",letterSpacing:".06em",color:"var(--muted)"}}>Cartellini</h4>
+            <button className="btn ghost sm" onClick={addCart}>+ Cartellino</button>
+          </div>
+          {modale.cartellini.length===0 && <div className="hint" style={{marginBottom:8}}>Nessun cartellino.</div>}
+          {modale.cartellini.map(c=>(
+            <div key={c.id} style={{display:"grid",gridTemplateColumns:"1.8fr 1fr 60px auto",gap:7,marginBottom:7,alignItems:"center"}}>
+              <select value={c.giocatoreId} onChange={e=>setCart(c.id,"giocatoreId",e.target.value)}>
+                <option value="">Giocatore…</option>{giocatori.map(g=><option key={g.id} value={g.id}>{g.cognome} {g.nome}</option>)}
+              </select>
+              <select value={c.tipo} onChange={e=>setCart(c.id,"tipo",e.target.value)}>{TIPI_CARTELLINO.map(t=><option key={t}>{t}</option>)}</select>
+              <input type="number" min="0" placeholder="min" value={c.minuto} onChange={e=>setCart(c.id,"minuto",e.target.value)} />
+              <button className="btn danger sm" onClick={()=>delCart(c.id)}>×</button>
+            </div>
+          ))}
         </Modale>
       )}
     </div>
@@ -1158,7 +1694,7 @@ function Dashboard({membri, documenti, allenamenti, movimenti, vai}){
         <div className="card">
           <div className="card-h">
             <h3>Prossimi appuntamenti</h3>
-            <button className="btn ghost sm" onClick={()=>vai("allenamenti")}>Calendario</button>
+            <button className="btn ghost sm" onClick={()=>vai("calendario")}>Calendario</button>
           </div>
           {prossime.length===0
             ? <Vuoto titolo="Calendario libero" testo="Nessun allenamento o partita in programma." />
@@ -1216,9 +1752,11 @@ function Login({toast}){
 const TAB = [
   ["dashboard","Cruscotto"],
   ["rosa","Rosa"],
+  ["calendario","Calendario"],
+  ["allenamenti","Allenamenti"],
+  ["risultati","Risultati"],
   ["documenti","Documenti"],
   ["tesseramenti","Tesseramenti"],
-  ["allenamenti","Allenamenti"],
   ["bilancio","Costi e ricavi"]
 ];
 
@@ -1281,7 +1819,9 @@ function App(){
         {tab==="rosa"         && <Rosa membri={membri} toast={toast} />}
         {tab==="documenti"    && <Documenti documenti={documenti} membri={membri} toast={toast} />}
         {tab==="tesseramenti" && <Tesseramenti membri={membri} documenti={documenti} toast={toast} />}
+        {tab==="calendario"   && <Calendario allenamenti={allenamenti} toast={toast} vai={setTab} />}
         {tab==="allenamenti"  && <Allenamenti allenamenti={allenamenti} membri={membri} toast={toast} />}
+        {tab==="risultati"    && <Risultati allenamenti={allenamenti} membri={membri} toast={toast} />}
         {tab==="bilancio"     && <Bilancio movimenti={movimenti} membri={membri} toast={toast} />}
       </div>
 
