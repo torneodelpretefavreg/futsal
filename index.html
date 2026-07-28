@@ -1261,6 +1261,10 @@ function Risultati({allenamenti, membri, toast}){
     golNostri: p.golNostri ?? "", golLoro: p.golLoro ?? "",
     marcatori: p.marcatori||[], cartellini: p.cartellini||[]
   });
+  const nuova = () => setModale({
+    data:oggi(), ora:"18:30", tipo:"Partita", luogo:"", avversario:"", casa:true,
+    competizione:"Campionato", giornata:"", golNostri:"", golLoro:"", marcatori:[], cartellini:[]
+  });
 
   const set = (k,v)=>setModale(m=>({...m,[k]:v}));
   const addMarc = ()=>setModale(m=>({...m,marcatori:[...m.marcatori,{id:uid(),giocatoreId:"",assistId:"",minuto:""}]}));
@@ -1272,11 +1276,20 @@ function Risultati({allenamenti, membri, toast}){
 
   const salvaReferto = async () => {
     const {id, ...d} = modale;
+    if(!(d.avversario||"").trim()) return toast("Indica l'avversario");
+    if(!d.tipo) d.tipo = "Partita";
+    // "giocata" = c'è un punteggio inserito; altrimenti resta in programma
+    const conPunteggio = d.golNostri !== "" && d.golNostri !== null && d.golLoro !== "" && d.golLoro !== null;
+    d.giocata = conPunteggio;
     d.golNostri = Number(d.golNostri)||0;
     d.golLoro = Number(d.golLoro)||0;
-    d.giocata = true;
     await salva(COL.allenamenti, id, d);
-    setModale(null); toast("Referto salvato");
+    setModale(null); toast(id ? "Partita aggiornata" : "Partita aggiunta");
+  };
+  const eliminaPartita = async () => {
+    if(confirm(`Elimini la partita contro ${modale.avversario||"—"} del ${dataIT(modale.data)}?`)){
+      await elimina(COL.allenamenti, modale.id); setModale(null); toast("Partita eliminata");
+    }
   };
 
   const scoreLabel = p => {
@@ -1346,13 +1359,16 @@ function Risultati({allenamenti, membri, toast}){
         <div className="card">
           <div className="card-h">
             <h3>Referti — {giocate.length}</h3>
-            <button className="btn ghost sm" onClick={esportaExcel}>Excel</button>
+            <div style={{display:"flex",gap:8}}>
+              <button className="btn ghost sm" onClick={esportaExcel}>Excel</button>
+              <button className="btn sm" onClick={nuova}>+ Aggiungi partita</button>
+            </div>
           </div>
           {giocate.length===0
-            ? <Vuoto titolo="Nessun referto" testo="Le partite le crei nel Calendario; qui inserisci risultati e marcatori." />
+            ? <Vuoto titolo="Nessun referto" testo="Aggiungi una partita da qui, oppure creala nel Calendario e inserisci qui il risultato." />
             : <div className="tw"><table>
                 <thead><tr><th>Data</th><th>Partita</th><th>Ris.</th><th></th><th></th></tr></thead>
-                <tbody>{giocate.map(p=><Riga key={p.id} p={p} azione={<button className="btn ghost sm" onClick={()=>apri(p)}>Dettaglio</button>} />)}</tbody>
+                <tbody>{giocate.map(p=><Riga key={p.id} p={p} azione={<button className="btn ghost sm" onClick={()=>apri(p)}>Modifica</button>} />)}</tbody>
               </table></div>}
 
           {inProgramma.length>0 && <>
@@ -1363,6 +1379,7 @@ function Risultati({allenamenti, membri, toast}){
                   <td><strong className="mono">{dataIT(p.data)}</strong><div style={{fontSize:11,color:"var(--muted)"}}>{p.competizione}</div></td>
                   <td>{p.casa?"vs ":"@ "}{p.avversario}</td>
                   <td style={{color:"var(--muted)",fontSize:12}}>{p.ora}</td>
+                  <td style={{textAlign:"right"}}><button className="btn ghost sm" onClick={()=>apri(p)}>Inserisci risultato</button></td>
                 </tr>
               ))}
             </tbody></table></div>
@@ -1393,20 +1410,31 @@ function Risultati({allenamenti, membri, toast}){
       </div>
 
       {modale && (
-        <Modale titolo={`Referto — ${modale.avversario||"partita"}`} onChiudi={()=>setModale(null)} onSalva={salvaReferto} salvaLabel="Salva referto" larghezza={680}>
-          <div style={{textAlign:"center",marginBottom:14,fontSize:13,color:"var(--muted)"}}>
-            {dataIT(modale.data)} · {modale.competizione}{modale.giornata?` · ${modale.giornata}`:""} · {modale.casa?"in casa":"in trasferta"}
+        <Modale titolo={modale.id?"Partita":"Nuova partita"} onChiudi={()=>setModale(null)} onSalva={salvaReferto} salvaLabel={modale.id?"Salva":"Aggiungi"} larghezza={680}>
+          <div className="row g3">
+            <Campo label="Data"><input type="date" value={modale.data} onChange={e=>set("data",e.target.value)} /></Campo>
+            <Campo label="Ora"><input type="time" value={modale.ora||""} onChange={e=>set("ora",e.target.value)} /></Campo>
+            <Campo label="Tipo"><select value={modale.tipo||"Partita"} onChange={e=>set("tipo",e.target.value)}>{TIPI_MATCH.map(t=><option key={t}>{t}</option>)}</select></Campo>
           </div>
+          <div className="row g3">
+            <Campo label="Competizione"><select value={modale.competizione} onChange={e=>set("competizione",e.target.value)}>{COMPETIZIONI.map(c=><option key={c}>{c}</option>)}</select></Campo>
+            <Campo label="Campo"><select value={modale.casa?"casa":"trasferta"} onChange={e=>set("casa",e.target.value==="casa")}><option value="casa">Casa</option><option value="trasferta">Trasferta</option></select></Campo>
+            <Campo label="Giornata"><input value={modale.giornata||""} onChange={e=>set("giornata",e.target.value)} placeholder="es. 5ª" /></Campo>
+          </div>
+          <Campo label="Avversario"><input value={modale.avversario} onChange={e=>set("avversario",e.target.value)} placeholder="Nome squadra avversaria" /></Campo>
+
+          <div className="divider"></div>
+          <label style={{textAlign:"center",display:"block"}}>Risultato</label>
           <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:14,marginBottom:6}}>
-            <div style={{textAlign:"right",flex:1,fontWeight:700}}>{modale.casa?SQUADRA:modale.avversario}</div>
-            <input type="number" min="0" style={{width:60,textAlign:"center",fontWeight:700,fontSize:18}} value={modale.casa?modale.golNostri:modale.golLoro}
+            <div style={{textAlign:"right",flex:1,fontWeight:700}}>{modale.casa?SQUADRA:(modale.avversario||"Avversario")}</div>
+            <input type="number" min="0" placeholder="–" style={{width:60,textAlign:"center",fontWeight:700,fontSize:18}} value={modale.casa?modale.golNostri:modale.golLoro}
               onChange={e=>set(modale.casa?"golNostri":"golLoro", e.target.value)} />
             <span style={{color:"var(--muted)"}}>–</span>
-            <input type="number" min="0" style={{width:60,textAlign:"center",fontWeight:700,fontSize:18}} value={modale.casa?modale.golLoro:modale.golNostri}
+            <input type="number" min="0" placeholder="–" style={{width:60,textAlign:"center",fontWeight:700,fontSize:18}} value={modale.casa?modale.golLoro:modale.golNostri}
               onChange={e=>set(modale.casa?"golLoro":"golNostri", e.target.value)} />
-            <div style={{flex:1,fontWeight:700}}>{modale.casa?modale.avversario:SQUADRA}</div>
+            <div style={{flex:1,fontWeight:700}}>{modale.casa?(modale.avversario||"Avversario"):SQUADRA}</div>
           </div>
-          <div className="hint" style={{textAlign:"center",marginBottom:14}}>Il riquadro di sinistra è sempre la squadra di casa.</div>
+          <div className="hint" style={{textAlign:"center",marginBottom:14}}>Lascia il punteggio vuoto per tenerla tra le partite in programma. Il riquadro di sinistra è sempre la squadra di casa.</div>
 
           <div className="divider"></div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
@@ -1443,6 +1471,10 @@ function Risultati({allenamenti, membri, toast}){
               <button className="btn danger sm" onClick={()=>delCart(c.id)}>×</button>
             </div>
           ))}
+          {modale.id && (
+            <><div className="divider"></div>
+            <button className="btn danger sm" onClick={eliminaPartita}>Elimina partita</button></>
+          )}
         </Modale>
       )}
     </div>
