@@ -517,6 +517,114 @@ function Rosa({membri, toast}){
     ...lista.map(m=>[m.tipo,m.cognome,m.nome,m.numero,m.ruolo,dataIT(m.dataNascita),m.luogoNascita,m.codiceFiscale,m.telefono,m.email,`${m.indirizzo||""} ${m.cap||""} ${m.comune||""} ${m.provincia||""}`.trim(),m.tipoVisita,dataIT(m.scadenzaVisita),m.statoTesseramento,m.numeroTessera])
   ], "rosa_futsal.csv");
 
+  // ---- IMPORT DA EXCEL ----
+  const [anteprima,setAnteprima] = useState(null);   // {ok:[...], scartate:n, totale:n}
+  const [importando,setImportando] = useState(false);
+
+  const scaricaModello = () => {
+    const righe = [
+      ["Tipo","Cognome","Nome","Numero","Ruolo","Data nascita","Luogo nascita","Prov nascita","Codice fiscale","Telefono","Email","Indirizzo","Comune","CAP","Provincia","Tipo visita","Scadenza visita","Stato tesseramento","Numero tessera","Note"],
+      ["Giocatore","Rossi","Mario","10","Pivot","15/03/1998","Reggio Emilia","RE","RSSMRA98C15H223X","333 1234567","mario.rossi@email.it","Via Roma 1","Fabbrico","42042","RE","Agonistica","30/06/2027","Da iniziare","","esempio — cancella questa riga"]
+    ];
+    scaricaExcel([{nome:"Rosa", righe}], "modello_rosa.xlsx");
+  };
+
+  const normH = s => String(s||"").replace(/\./g,"").trim().toLowerCase();
+  const ALIAS = {
+    tipo:["tipo"], cognome:["cognome"], nome:["nome"],
+    numero:["numero","n","maglia","numero maglia","n maglia"], ruolo:["ruolo"],
+    dataNascita:["nascita","data nascita","data di nascita"],
+    luogoNascita:["luogo","luogo nascita","luogo di nascita"],
+    provinciaNascita:["prov nascita","provincia nascita"],
+    codiceFiscale:["cf","codice fiscale"],
+    telefono:["telefono","tel","cellulare","cell"], email:["email","mail","e-mail"],
+    indirizzo:["indirizzo","via"], comune:["comune"], cap:["cap"], provincia:["provincia","prov"],
+    tipoVisita:["visita","tipo visita"], scadenzaVisita:["scadenza","scadenza visita"],
+    statoTesseramento:["tesseramento","stato tesseramento"],
+    numeroTessera:["tessera","numero tessera","n tessera"], note:["note"]
+  };
+  const parseData = v => {
+    if(v == null || v === "") return "";
+    if(v instanceof Date && !isNaN(v)) return `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,"0")}-${String(v.getDate()).padStart(2,"0")}`;
+    const s = String(v).trim();
+    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+    m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
+    if(m){ let[_,d,mm,y]=m; if(y.length===2) y="20"+y; return `${y}-${mm.padStart(2,"0")}-${d.padStart(2,"0")}`; }
+    return "";
+  };
+
+  const scegliFileImport = async e => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if(!file) return;
+    if(typeof XLSX === "undefined") return toast("Libreria Excel non caricata, riprova online");
+    setImportando(true);
+    try{
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, {type:"array", cellDates:true});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, blankrows:false, raw:true});
+      if(rows.length < 2) throw new Error("Il file sembra vuoto o senza righe dati");
+      // mappa intestazioni -> campo
+      const intest = rows[0].map(normH);
+      const colDi = {};
+      Object.entries(ALIAS).forEach(([campo,alias])=>{
+        const i = intest.findIndex(h => alias.includes(h));
+        if(i >= 0 && colDi[campo] === undefined) colDi[campo] = i;
+      });
+      if(colDi.cognome === undefined || colDi.nome === undefined)
+        throw new Error("Servono almeno le colonne Nome e Cognome. Scarica il modello per la struttura giusta.");
+
+      const val = (r,campo) => colDi[campo]===undefined ? "" : (r[colDi[campo]] ?? "");
+      const ok = []; let scartate = 0;
+      rows.slice(1).forEach(r=>{
+        const cognome = String(val(r,"cognome")).trim();
+        const nome = String(val(r,"nome")).trim();
+        if(!cognome || !nome){ scartate++; return; }
+        const tipoRaw = String(val(r,"tipo")).trim().toLowerCase();
+        const tipoM = tipoRaw.startsWith("dir") ? "Dirigente" : "Giocatore";
+        const cf = String(val(r,"codiceFiscale")).toUpperCase().trim();
+        ok.push({
+          ...MEMBRO_VUOTO,
+          tipo: tipoM, cognome, nome,
+          numero: val(r,"numero")===""? "" : String(val(r,"numero")).trim(),
+          ruolo: String(val(r,"ruolo")).trim() || (tipoM==="Giocatore"?"Universale":"Dirigente accompagnatore"),
+          dataNascita: parseData(val(r,"dataNascita")),
+          luogoNascita: String(val(r,"luogoNascita")).trim(),
+          provinciaNascita: String(val(r,"provinciaNascita")).trim().toUpperCase(),
+          codiceFiscale: cf,
+          telefono: String(val(r,"telefono")).trim(),
+          email: String(val(r,"email")).trim(),
+          indirizzo: String(val(r,"indirizzo")).trim(),
+          comune: String(val(r,"comune")).trim(),
+          cap: String(val(r,"cap")).trim(),
+          provincia: String(val(r,"provincia")).trim().toUpperCase(),
+          tipoVisita: String(val(r,"tipoVisita")).trim() || (tipoM==="Giocatore"?"Agonistica":"Non richiesta"),
+          scadenzaVisita: parseData(val(r,"scadenzaVisita")),
+          statoTesseramento: String(val(r,"statoTesseramento")).trim() || "Da iniziare",
+          numeroTessera: String(val(r,"numeroTessera")).trim(),
+          note: String(val(r,"note")).trim(),
+          cfNonValido: cf && !cfValido(cf)
+        });
+      });
+      if(ok.length === 0) throw new Error("Nessuna riga valida trovata (mancano nome/cognome).");
+      setAnteprima({ok, scartate, totale: rows.length-1});
+    }catch(err){ toast(err.message); }
+    setImportando(false);
+  };
+
+  const confermaImport = async () => {
+    setImportando(true);
+    let n = 0;
+    for(const m of anteprima.ok){
+      const {cfNonValido, ...dati} = m;
+      try{ await salva(COL.membri, null, dati); n++; }catch(e){ console.error(e); }
+    }
+    setImportando(false);
+    setAnteprima(null);
+    toast(`${n} ${n===1?"persona importata":"persone importate"}`);
+  };
+
   const ruoli = modale?.tipo === "Giocatore" ? RUOLI_GIOCATORE : RUOLI_DIRIGENTE;
 
   return (
@@ -534,6 +642,11 @@ function Rosa({membri, toast}){
               Solo attivi
             </label>
             <button className="btn ghost sm" onClick={esporta}>CSV</button>
+            <button className="btn ghost sm" onClick={scaricaModello}>Modello</button>
+            <label className="btn ghost sm" style={{marginBottom:0,cursor:"pointer"}}>
+              {importando ? "…" : "Importa"}
+              <input type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}} onChange={scegliFileImport} disabled={importando} />
+            </label>
             <button className="btn sm" onClick={()=>setModale({...MEMBRO_VUOTO})}>+ Aggiungi</button>
           </div>
         </div>
@@ -650,6 +763,34 @@ function Rosa({membri, toast}){
             <Campo label="Data tesseramento"><input type="date" value={modale.dataTesseramento} onChange={e=>set("dataTesseramento",e.target.value)} /></Campo>
           </div>
           <Campo label="Note"><textarea rows="2" value={modale.note} onChange={e=>set("note",e.target.value)} /></Campo>
+        </Modale>
+      )}
+
+      {anteprima && (
+        <Modale titolo="Anteprima importazione" onChiudi={()=>setAnteprima(null)}
+          onSalva={importando?null:confermaImport} salvaLabel={importando?"Importazione…":`Importa ${anteprima.ok.length}`} larghezza={720}>
+          <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+            <span className="pill p-ok">{anteprima.ok.length} da importare</span>
+            {anteprima.scartate>0 && <span className="pill p-neutral">{anteprima.scartate} scartate (nome/cognome mancante)</span>}
+            {anteprima.ok.some(m=>m.cfNonValido) && <span className="pill p-warn">{anteprima.ok.filter(m=>m.cfNonValido).length} con CF da controllare</span>}
+          </div>
+          <div className="hint" style={{marginBottom:10}}>Le persone vengono <strong>aggiunte</strong> alla rosa esistente (non la sostituiscono). Controlla e conferma.</div>
+          <div className="tw" style={{maxHeight:"46vh",overflowY:"auto"}}><table>
+            <thead><tr><th>Tipo</th><th>Nominativo</th><th>Ruolo</th><th>Nascita</th><th>CF</th><th>Visita</th></tr></thead>
+            <tbody>{anteprima.ok.map((m,i)=>(
+              <tr key={i}>
+                <td><span className={"pill "+(m.tipo==="Dirigente"?"p-neutral":"p-ok")}>{m.tipo==="Dirigente"?"DIR":"GIO"}</span></td>
+                <td><strong>{m.cognome} {m.nome}</strong>{m.numero?<span className="mono" style={{color:"var(--muted)"}}> #{m.numero}</span>:null}</td>
+                <td>{m.ruolo}</td>
+                <td className="mono">{dataIT(m.dataNascita)}</td>
+                <td className="mono" style={{color: m.cfNonValido?"var(--coral)":"inherit"}}>{m.codiceFiscale||"—"}</td>
+                <td className="mono">{dataIT(m.scadenzaVisita)}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+          <div style={{marginTop:12}}>
+            <button className="btn ghost sm" onClick={scaricaModello}>Scarica il modello Excel</button>
+          </div>
         </Modale>
       )}
     </div>
