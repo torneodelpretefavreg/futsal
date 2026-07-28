@@ -212,7 +212,8 @@ const COL = {
   membri:      "fg_membri",
   documenti:   "fg_documenti",
   allenamenti: "fg_allenamenti",
-  movimenti:   "fg_movimenti"
+  movimenti:   "fg_movimenti",
+  competizioni:"fg_competizioni"
 };
 
 const CONFIGURATA = !FIREBASE_CONFIG.apiKey.startsWith("INSERISCI");
@@ -234,6 +235,12 @@ const STATI_TESS = ["Da iniziare","Documenti raccolti","Inviato","Tesserato","Re
 const TIPI_ALLENAMENTO = ["Allenamento","Amichevole","Partita","Riunione"];
 const TIPI_MATCH = ["Partita","Amichevole"];
 const COMPETIZIONI = ["Campionato","Coppa","Torneo","Amichevole"];
+const CATEGORIE_COMP = ["Campionato","Coppa","Torneo","Amichevole"];
+function opzioniCompetizioni(competizioni, valoreCorrente){
+  const nomi = (competizioni||[]).map(c=>c.nome).filter(Boolean);
+  const base = nomi.length ? nomi : COMPETIZIONI;
+  return (valoreCorrente && !base.includes(valoreCorrente)) ? [valoreCorrente, ...base] : base;
+}
 const TIPI_CARTELLINO = ["Giallo","Rosso"];
 const SQUADRA = "Futsal Fabbrico";
 const CAT_ENTRATA = ["Quote associative","Sponsor","Incassi gara","Contributi","Bar / eventi","Merchandising","Altro"];
@@ -1089,7 +1096,7 @@ function Allenamenti({allenamenti, membri, toast}){
    ================================================================== */
 const EVENTO_VUOTO = { data:oggi(), ora:"21:00", tipo:"Partita", luogo:"", note:"", avversario:"", casa:true, competizione:"Campionato", giornata:"" };
 
-function Calendario({allenamenti, toast, vai}){
+function Calendario({allenamenti, competizioni, toast, vai}){
   const now = new Date();
   const [anno,setAnno] = useState(now.getFullYear());
   const [mese,setMese] = useState(now.getMonth());
@@ -1204,7 +1211,7 @@ function Calendario({allenamenti, toast, vai}){
           {isMatch(modale.tipo) ? (
             <>
               <div className="row g3">
-                <Campo label="Competizione"><select value={modale.competizione} onChange={e=>set("competizione",e.target.value)}>{COMPETIZIONI.map(c=><option key={c}>{c}</option>)}</select></Campo>
+                <Campo label="Competizione"><select value={modale.competizione} onChange={e=>set("competizione",e.target.value)}>{opzioniCompetizioni(competizioni, modale.competizione).map(c=><option key={c}>{c}</option>)}</select></Campo>
                 <Campo label="Campo"><select value={modale.casa?"casa":"trasferta"} onChange={e=>set("casa",e.target.value==="casa")}><option value="casa">Casa</option><option value="trasferta">Trasferta</option></select></Campo>
                 <Campo label="Giornata"><input value={modale.giornata} onChange={e=>set("giornata",e.target.value)} placeholder="es. 5ª" /></Campo>
               </div>
@@ -1228,8 +1235,65 @@ function Calendario({allenamenti, toast, vai}){
 /* ==================================================================
    9c. RISULTATI
    ================================================================== */
-function Risultati({allenamenti, membri, toast}){
+function CompetizioniManager({competizioni, toast, onChiudi}){
+  const vuoto = {nome:"", categoria:"Campionato", stagione:"", note:""};
+  const [f,setF] = useState(vuoto);
+  const set = (k,v)=>setF(x=>({...x,[k]:v}));
+  const lista = [...competizioni].sort((a,b)=>(a.nome||"").localeCompare(b.nome||""));
+
+  const salvaComp = async () => {
+    if(!f.nome.trim()) return toast("Serve il nome della competizione");
+    const {id, ...dati} = f;
+    dati.nome = dati.nome.trim();
+    await salva(COL.competizioni, id, dati);
+    setF(vuoto);
+    toast(id ? "Competizione aggiornata" : "Competizione creata");
+  };
+  const modifica = c => setF({...vuoto, ...c});
+  const rimuovi = async c => {
+    if(confirm(`Elimini la competizione "${c.nome}"? Le partite già assegnate mantengono il nome.`)){
+      await elimina(COL.competizioni, c.id); if(f.id===c.id) setF(vuoto); toast("Competizione eliminata");
+    }
+  };
+
+  return (
+    <Modale titolo="Competizioni" onChiudi={onChiudi} larghezza={640}>
+      <div className="row g2">
+        <Campo label="Nome"><input value={f.nome} onChange={e=>set("nome",e.target.value)} placeholder="es. Campionato Serie C2 2026/27" /></Campo>
+        <Campo label="Categoria"><select value={f.categoria} onChange={e=>set("categoria",e.target.value)}>{CATEGORIE_COMP.map(c=><option key={c}>{c}</option>)}</select></Campo>
+      </div>
+      <div className="row g2">
+        <Campo label="Stagione"><input value={f.stagione} onChange={e=>set("stagione",e.target.value)} placeholder="2026/27" /></Campo>
+        <Campo label="Note"><input value={f.note} onChange={e=>set("note",e.target.value)} /></Campo>
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:4}}>
+        <button className="btn sm" onClick={salvaComp}>{f.id?"Salva modifica":"+ Aggiungi competizione"}</button>
+        {f.id && <button className="btn ghost sm" onClick={()=>setF(vuoto)}>Annulla</button>}
+      </div>
+      <div className="divider"></div>
+      {lista.length===0
+        ? <div className="hint">Nessuna competizione ancora. Creane una qui sopra; comparirà nel menu quando registri una partita.</div>
+        : <div className="tw"><table>
+            <thead><tr><th>Nome</th><th>Categoria</th><th>Stagione</th><th></th></tr></thead>
+            <tbody>{lista.map(c=>(
+              <tr key={c.id}>
+                <td><strong>{c.nome}</strong>{c.note?<div style={{fontSize:11,color:"var(--muted)"}}>{c.note}</div>:null}</td>
+                <td>{c.categoria}</td>
+                <td className="mono">{c.stagione||"—"}</td>
+                <td style={{whiteSpace:"nowrap"}}>
+                  <button className="btn ghost sm" onClick={()=>modifica(c)}>Modifica</button>{" "}
+                  <button className="btn danger sm" onClick={()=>rimuovi(c)}>×</button>
+                </td>
+              </tr>
+            ))}</tbody>
+          </table></div>}
+    </Modale>
+  );
+}
+
+function Risultati({allenamenti, membri, competizioni, toast}){
   const [modale,setModale] = useState(null);
+  const [gestioneComp,setGestioneComp] = useState(false);
 
   const giocatori = membri.filter(m=>m.tipo==="Giocatore").sort((a,b)=>(a.cognome||"").localeCompare(b.cognome||""));
   const nomeG = id => { const m=membri.find(x=>x.id===id); return m?`${m.cognome} ${m.nome}`:"—"; };
@@ -1360,6 +1424,7 @@ function Risultati({allenamenti, membri, toast}){
           <div className="card-h">
             <h3>Referti — {giocate.length}</h3>
             <div style={{display:"flex",gap:8}}>
+              <button className="btn ghost sm" onClick={()=>setGestioneComp(true)}>Competizioni</button>
               <button className="btn ghost sm" onClick={esportaExcel}>Excel</button>
               <button className="btn sm" onClick={nuova}>+ Aggiungi partita</button>
             </div>
@@ -1417,7 +1482,7 @@ function Risultati({allenamenti, membri, toast}){
             <Campo label="Tipo"><select value={modale.tipo||"Partita"} onChange={e=>set("tipo",e.target.value)}>{TIPI_MATCH.map(t=><option key={t}>{t}</option>)}</select></Campo>
           </div>
           <div className="row g3">
-            <Campo label="Competizione"><select value={modale.competizione} onChange={e=>set("competizione",e.target.value)}>{COMPETIZIONI.map(c=><option key={c}>{c}</option>)}</select></Campo>
+            <Campo label="Competizione"><select value={modale.competizione} onChange={e=>set("competizione",e.target.value)}>{opzioniCompetizioni(competizioni, modale.competizione).map(c=><option key={c}>{c}</option>)}</select></Campo>
             <Campo label="Campo"><select value={modale.casa?"casa":"trasferta"} onChange={e=>set("casa",e.target.value==="casa")}><option value="casa">Casa</option><option value="trasferta">Trasferta</option></select></Campo>
             <Campo label="Giornata"><input value={modale.giornata||""} onChange={e=>set("giornata",e.target.value)} placeholder="es. 5ª" /></Campo>
           </div>
@@ -1477,6 +1542,8 @@ function Risultati({allenamenti, membri, toast}){
           )}
         </Modale>
       )}
+
+      {gestioneComp && <CompetizioniManager competizioni={competizioni} toast={toast} onChiudi={()=>setGestioneComp(false)} />}
     </div>
   );
 }
@@ -1810,6 +1877,7 @@ function App(){
   const [documenti]   = useCollection(COL.documenti, ok);
   const [allenamenti] = useCollection(COL.allenamenti, ok);
   const [movimenti]   = useCollection(COL.movimenti, ok);
+  const [competizioni] = useCollection(COL.competizioni, ok);
 
   if(!CONFIGURATA) return (
     <div className="gate">
@@ -1851,9 +1919,9 @@ function App(){
         {tab==="rosa"         && <Rosa membri={membri} toast={toast} />}
         {tab==="documenti"    && <Documenti documenti={documenti} membri={membri} toast={toast} />}
         {tab==="tesseramenti" && <Tesseramenti membri={membri} documenti={documenti} toast={toast} />}
-        {tab==="calendario"   && <Calendario allenamenti={allenamenti} toast={toast} vai={setTab} />}
+        {tab==="calendario"   && <Calendario allenamenti={allenamenti} competizioni={competizioni} toast={toast} vai={setTab} />}
         {tab==="allenamenti"  && <Allenamenti allenamenti={allenamenti} membri={membri} toast={toast} />}
-        {tab==="risultati"    && <Risultati allenamenti={allenamenti} membri={membri} toast={toast} />}
+        {tab==="risultati"    && <Risultati allenamenti={allenamenti} membri={membri} competizioni={competizioni} toast={toast} />}
         {tab==="bilancio"     && <Bilancio movimenti={movimenti} membri={membri} toast={toast} />}
       </div>
 
