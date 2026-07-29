@@ -512,10 +512,30 @@ function Rosa({membri, toast}){
     toast("Membro eliminato");
   };
 
-  const esporta = () => scaricaCSV([
-    ["Tipo","Cognome","Nome","Numero","Ruolo","Nascita","Luogo","CF","Telefono","Email","Residenza","Visita","Scadenza visita","Tesseramento","N. tessera"],
-    ...lista.map(m=>[m.tipo,m.cognome,m.nome,m.numero,m.ruolo,dataIT(m.dataNascita),m.luogoNascita,m.codiceFiscale,m.telefono,m.email,`${m.indirizzo||""} ${m.cap||""} ${m.comune||""} ${m.provincia||""}`.trim(),m.tipoVisita,dataIT(m.scadenzaVisita),m.statoTesseramento,m.numeroTessera])
-  ], "rosa_futsal.csv");
+  const esportaPDF = () => {
+    const giocatori = lista.filter(m=>m.tipo==="Giocatore");
+    const dirigenti = lista.filter(m=>m.tipo==="Dirigente");
+    const rigaG = m => {
+      const v = statoVisita(m);
+      return `<tr><td class="r">${esc(m.numero)||"–"}</td><td>${esc(m.cognome)} ${esc(m.nome)}</td><td>${esc(m.ruolo)}</td>`
+        +`<td>${dataIT(m.dataNascita)}</td><td>${esc(m.codiceFiscale)}</td>`
+        +`<td>${esc(m.telefono)}</td><td>${m.tipoVisita==="Non richiesta"?"—":dataIT(m.scadenzaVisita)}</td>`
+        +`<td>${esc(m.statoTesseramento)}</td></tr>`;
+    };
+    const rigaD = m =>
+      `<tr><td>${esc(m.cognome)} ${esc(m.nome)}</td><td>${esc(m.ruolo)}</td>`
+      +`<td>${esc(m.telefono)}</td><td>${esc(m.email)}</td><td>${esc(m.statoTesseramento)}</td></tr>`;
+    const html =
+      `<h1>Rosa — ${esc(SQUADRA)}</h1>`+
+      `<div class="meta">${giocatori.length} giocatori · ${dirigenti.length} dirigenti · aggiornata al ${dataIT(oggi())}</div>`+
+      (giocatori.length?
+        `<h2>Giocatori</h2><table><thead><tr><th class="r">N.</th><th>Nominativo</th><th>Ruolo</th><th>Nascita</th><th>Codice fiscale</th><th>Telefono</th><th>Visita</th><th>Tesseramento</th></tr></thead>`+
+        `<tbody>${giocatori.map(rigaG).join("")}</tbody></table>`:"")+
+      (dirigenti.length?
+        `<h2>Dirigenti e staff</h2><table><thead><tr><th>Nominativo</th><th>Ruolo</th><th>Telefono</th><th>Email</th><th>Tesseramento</th></tr></thead>`+
+        `<tbody>${dirigenti.map(rigaD).join("")}</tbody></table>`:"");
+    stampaPDF("Rosa "+SQUADRA, html);
+  };
 
   // ---- IMPORT DA EXCEL ----
   const [anteprima,setAnteprima] = useState(null);   // {ok:[...], scartate:n, totale:n}
@@ -641,7 +661,7 @@ function Rosa({membri, toast}){
               <input type="checkbox" checked={soloAttivi} onChange={e=>setSoloAttivi(e.target.checked)} />
               Solo attivi
             </label>
-            <button className="btn ghost sm" onClick={esporta}>CSV</button>
+            <button className="btn ghost sm" onClick={esportaPDF}>PDF</button>
             <button className="btn ghost sm" onClick={scaricaModello}>Modello</button>
             <label className="btn ghost sm" style={{marginBottom:0,cursor:"pointer"}}>
               {importando ? "…" : "Importa"}
