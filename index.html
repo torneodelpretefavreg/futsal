@@ -229,7 +229,9 @@ if (CONFIGURATA) {
 /* ==================================================================
    2. COSTANTI DI DOMINIO
    ================================================================== */
-const RUOLI_GIOCATORE = ["Portiere","Difensore","Laterale","Pivot","Universale"];
+const RUOLI_GIOCATORE = ["Portiere","Centrale","Laterale","Pivot","Universale"];
+const ORDINE_RUOLO = ["Portiere","Centrale","Difensore","Laterale","Pivot","Universale"];
+const rangoRuolo = r => { const i = ORDINE_RUOLO.indexOf(r); return i<0 ? 99 : i; };
 const RUOLI_DIRIGENTE = ["Presidente","Vicepresidente","Segretario","Tesoriere","Allenatore","Vice allenatore","Preparatore portieri","Dirigente accompagnatore","Massaggiatore","Altro"];
 const TIPI_VISITA = ["Agonistica","Non agonistica","Non richiesta"];
 const TIPI_DOC = ["Visita medica","Documento identità","Tessera sanitaria","Modulo tesseramento","Liberatoria immagini","Certificato anagrafico","Altro"];
@@ -497,6 +499,13 @@ function Rosa({membri, toast}){
       .filter(m => !q || (`${m.nome} ${m.cognome} ${m.ruolo||""} ${m.codiceFiscale||""}`).toLowerCase().includes(q))
       .sort((a,b)=>{
         if(a.tipo !== b.tipo) return a.tipo==="Giocatore" ? -1 : 1;
+        if(a.tipo==="Giocatore"){
+          const r = rangoRuolo(a.ruolo) - rangoRuolo(b.ruolo);
+          if(r !== 0) return r;
+          const na = a.numero===""||a.numero==null ? 999 : Number(a.numero);
+          const nb = b.numero===""||b.numero==null ? 999 : Number(b.numero);
+          if(na !== nb) return na - nb;
+        }
         return (a.cognome||"").localeCompare(b.cognome||"");
       });
   },[membri,f,tipo,soloAttivi]);
