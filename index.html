@@ -215,7 +215,8 @@ const COL = {
   documenti:   "fg_documenti",
   allenamenti: "fg_allenamenti",
   movimenti:   "fg_movimenti",
-  competizioni:"fg_competizioni"
+  competizioni:"fg_competizioni",
+  tipiEvento:  "fg_tipi_evento"
 };
 
 const CONFIGURATA = !FIREBASE_CONFIG.apiKey.startsWith("INSERISCI");
@@ -238,6 +239,30 @@ const TIPI_DOC = ["Visita medica","Documento identità","Tessera sanitaria","Mod
 const STATI_TESS = ["Da iniziare","Documenti raccolti","Inviato","Tesserato","Respinto"];
 const TIPI_ALLENAMENTO = ["Allenamento","Amichevole","Partita","Riunione"];
 const TIPI_MATCH = ["Partita","Amichevole"];
+const COMPORTAMENTI = [
+  ["allenamento","Allenamento — con esercizi e presenze"],
+  ["partita","Partita — con avversario, risultato e marcatori"],
+  ["generico","Generico — compare solo nel calendario"]
+];
+const TIPI_PREDEFINITI = [
+  {nome:"Allenamento", comportamento:"allenamento"},
+  {nome:"Amichevole",  comportamento:"partita"},
+  {nome:"Partita",     comportamento:"partita"},
+  {nome:"Riunione",    comportamento:"generico"}
+];
+// Mappa nome tipo -> comportamento, aggiornata da App quando cambia la collection.
+let COMPORTAMENTO_TIPI = {};
+function comportamentoTipo(tipo){
+  if(COMPORTAMENTO_TIPI[tipo]) return COMPORTAMENTO_TIPI[tipo];
+  if(tipo==="Partita"||tipo==="Amichevole") return "partita";
+  if(tipo==="Allenamento") return "allenamento";
+  return "generico";
+}
+function opzioniTipi(tipiEvento, valoreCorrente){
+  const nomi = (tipiEvento||[]).map(t=>t.nome).filter(Boolean);
+  const base = nomi.length ? nomi : TIPI_ALLENAMENTO;
+  return (valoreCorrente && !base.includes(valoreCorrente)) ? [valoreCorrente, ...base] : base;
+}
 const COMPETIZIONI = ["Campionato","Coppa","Torneo","Amichevole"];
 const CATEGORIE_COMP = ["Campionato","Coppa","Torneo","Amichevole"];
 function opzioniCompetizioni(competizioni, valoreCorrente){
@@ -347,8 +372,16 @@ function grigliaMese(anno, mese){
   for(let i=0;i<celle.length;i+=7) settimane.push(celle.slice(i,i+7));
   return settimane;
 }
-const coloreEvento = t => t==="Partita" ? "var(--coral)" : t==="Amichevole" ? "var(--amber)" : t==="Riunione" ? "var(--muted)" : "var(--mint)";
-const isMatch = t => TIPI_MATCH.includes(t);
+const coloreEvento = t => {
+  if(t==="Partita") return "var(--coral)";
+  if(t==="Amichevole") return "var(--amber)";
+  if(t==="Riunione") return "var(--muted)";
+  if(t==="Allenamento") return "var(--mint)";
+  const c = comportamentoTipo(t);
+  return c==="partita" ? "var(--coral)" : c==="allenamento" ? "var(--mint)" : "var(--muted)";
+};
+const isMatch = t => comportamentoTipo(t)==="partita";
+const isAllenamento = t => comportamentoTipo(t)==="allenamento";
 
 /* Immagini compresse lato client, PDF passano così come sono.
    Limite Firestore: 1 MB per documento -> teniamo il margine a 700 KB. */
@@ -1064,16 +1097,16 @@ function Allenamenti({allenamenti, membri, toast}){
   const giocatori = membri.filter(m=>m.attivo!==false && m.tipo==="Giocatore")
     .sort((a,b)=>(a.cognome||"").localeCompare(b.cognome||""));
 
-  // Solo allenamenti veri (partite e amichevoli stanno in Calendario/Risultati)
+  // Allenamenti (comportamento) + eventi generici tipo riunione; partite/amichevoli stanno in Calendario/Risultati
   const lista = useMemo(()=>[...allenamenti]
-    .filter(s=>s.tipo==="Allenamento" || s.tipo==="Riunione")
+    .filter(s=>isAllenamento(s.tipo) || comportamentoTipo(s.tipo)==="generico")
     .sort((a,b)=>(b.data+b.ora).localeCompare(a.data+a.ora)),[allenamenti]);
   const passate = lista.filter(s=>s.data <= oggi());
 
   const stats = useMemo(()=>{
-    const tot = passate.filter(s=>s.tipo==="Allenamento").length;
+    const tot = passate.filter(s=>isAllenamento(s.tipo)).length;
     return giocatori.map(g=>{
-      const p = passate.filter(s=>s.tipo==="Allenamento" && (s.presenti||[]).includes(g.id)).length;
+      const p = passate.filter(s=>isAllenamento(s.tipo) && (s.presenti||[]).includes(g.id)).length;
       return {g, p, tot, pct: tot ? Math.round(p/tot*100) : 0};
     }).sort((a,b)=>b.pct-a.pct);
   },[passate,giocatori]);
@@ -1265,11 +1298,12 @@ function Allenamenti({allenamenti, membri, toast}){
    ================================================================== */
 const EVENTO_VUOTO = { data:oggi(), ora:"21:00", tipo:"Partita", luogo:"", note:"", avversario:"", casa:true, competizione:"Campionato", giornata:"" };
 
-function Calendario({allenamenti, competizioni, toast, vai}){
+function Calendario({allenamenti, competizioni, tipiEvento, toast, vai}){
   const now = new Date();
   const [anno,setAnno] = useState(now.getFullYear());
   const [mese,setMese] = useState(now.getMonth());
   const [modale,setModale] = useState(null);
+  const [gestioneTipi,setGestioneTipi] = useState(false);
 
   const perGiorno = useMemo(()=>{
     const map = {};
@@ -1334,6 +1368,7 @@ function Calendario({allenamenti, competizioni, toast, vai}){
             <span style={{fontSize:12,color:"var(--muted)"}}>{inMese} eventi</span>
           </div>
           <div style={{display:"flex",gap:8}}>
+            <button className="btn ghost sm" onClick={()=>setGestioneTipi(true)}>Tipi</button>
             <button className="btn ghost sm" onClick={esportaPDF}>PDF</button>
             <button className="btn ghost sm" onClick={esportaExcel}>Excel</button>
             <button className="btn sm" onClick={()=>setModale({...EVENTO_VUOTO})}>+ Evento</button>
@@ -1374,7 +1409,7 @@ function Calendario({allenamenti, competizioni, toast, vai}){
           <div className="row g3">
             <Campo label="Data"><input type="date" value={modale.data} onChange={e=>set("data",e.target.value)} /></Campo>
             <Campo label="Ora"><input type="time" value={modale.ora} onChange={e=>set("ora",e.target.value)} /></Campo>
-            <Campo label="Tipo"><select value={modale.tipo} onChange={e=>set("tipo",e.target.value)}>{TIPI_ALLENAMENTO.map(t=><option key={t}>{t}</option>)}</select></Campo>
+            <Campo label="Tipo"><select value={modale.tipo} onChange={e=>set("tipo",e.target.value)}>{opzioniTipi(tipiEvento, modale.tipo).map(t=><option key={t}>{t}</option>)}</select></Campo>
           </div>
           {isMatch(modale.tipo) ? (
             <>
@@ -1396,6 +1431,8 @@ function Calendario({allenamenti, competizioni, toast, vai}){
           )}
         </Modale>
       )}
+
+      {gestioneTipi && <TipiEventoManager tipiEvento={tipiEvento} toast={toast} onChiudi={()=>setGestioneTipi(false)} />}
     </div>
   );
 }
@@ -1403,6 +1440,69 @@ function Calendario({allenamenti, competizioni, toast, vai}){
 /* ==================================================================
    9c. RISULTATI
    ================================================================== */
+function TipiEventoManager({tipiEvento, toast, onChiudi}){
+  const vuoto = {nome:"", comportamento:"allenamento"};
+  const [f,setF] = useState(vuoto);
+  const set = (k,v)=>setF(x=>({...x,[k]:v}));
+  const lista = [...tipiEvento].sort((a,b)=>(a.nome||"").localeCompare(b.nome||""));
+
+  const salvaTipo = async () => {
+    if(!f.nome.trim()) return toast("Serve il nome del tipo");
+    const {id, ...dati} = f; dati.nome = dati.nome.trim();
+    await salva(COL.tipiEvento, id, dati);
+    setF(vuoto); toast(id ? "Tipo aggiornato" : "Tipo creato");
+  };
+  const modifica = t => setF({...vuoto, ...t});
+  const rimuovi = async t => {
+    if(confirm(`Elimini il tipo "${t.nome}"? Gli eventi già creati mantengono il tipo.`)){
+      await elimina(COL.tipiEvento, t.id); if(f.id===t.id) setF(vuoto); toast("Tipo eliminato");
+    }
+  };
+  const caricaPredefiniti = async () => {
+    for(const t of TIPI_PREDEFINITI){
+      if(!tipiEvento.some(x=>x.nome===t.nome)) await salva(COL.tipiEvento, null, t);
+    }
+    toast("Tipi predefiniti aggiunti");
+  };
+  const etichetta = c => (COMPORTAMENTI.find(x=>x[0]===c)||["","—"])[1].split(" — ")[0];
+
+  return (
+    <Modale titolo="Tipi di evento" onChiudi={onChiudi} larghezza={640}>
+      <div className="row g2">
+        <Campo label="Nome"><input value={f.nome} onChange={e=>set("nome",e.target.value)} placeholder="es. Torneo, Raduno, Riposo" /></Campo>
+        <Campo label="Comportamento">
+          <select value={f.comportamento} onChange={e=>set("comportamento",e.target.value)}>
+            {COMPORTAMENTI.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+          </select>
+        </Campo>
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:4}}>
+        <button className="btn sm" onClick={salvaTipo}>{f.id?"Salva modifica":"+ Aggiungi tipo"}</button>
+        {f.id && <button className="btn ghost sm" onClick={()=>setF(vuoto)}>Annulla</button>}
+      </div>
+      <div className="divider"></div>
+      {lista.length===0
+        ? <div>
+            <div className="hint" style={{marginBottom:10}}>Non hai ancora tipi personalizzati: nel menu restano i predefiniti (Allenamento, Amichevole, Partita, Riunione). Puoi aggiungerli qui per poterli modificare, oppure crearne di nuovi.</div>
+            <button className="btn ghost sm" onClick={caricaPredefiniti}>Aggiungi i tipi predefiniti</button>
+          </div>
+        : <div className="tw"><table>
+            <thead><tr><th>Nome</th><th>Comportamento</th><th></th></tr></thead>
+            <tbody>{lista.map(t=>(
+              <tr key={t.id}>
+                <td><strong>{t.nome}</strong></td>
+                <td><span className={"pill "+(t.comportamento==="partita"?"p-bad":t.comportamento==="allenamento"?"p-ok":"p-neutral")}>{etichetta(t.comportamento)}</span></td>
+                <td style={{whiteSpace:"nowrap"}}>
+                  <button className="btn ghost sm" onClick={()=>modifica(t)}>Modifica</button>{" "}
+                  <button className="btn danger sm" onClick={()=>rimuovi(t)}>×</button>
+                </td>
+              </tr>
+            ))}</tbody>
+          </table></div>}
+    </Modale>
+  );
+}
+
 function CompetizioniManager({competizioni, toast, onChiudi}){
   const vuoto = {nome:"", categoria:"Campionato", stagione:"", note:""};
   const [f,setF] = useState(vuoto);
@@ -2046,6 +2146,13 @@ function App(){
   const [allenamenti] = useCollection(COL.allenamenti, ok);
   const [movimenti]   = useCollection(COL.movimenti, ok);
   const [competizioni] = useCollection(COL.competizioni, ok);
+  const [tipiEvento]  = useCollection(COL.tipiEvento, ok);
+
+  useEffect(()=>{
+    const map = {};
+    tipiEvento.forEach(t=>{ if(t.nome) map[t.nome] = t.comportamento || "generico"; });
+    COMPORTAMENTO_TIPI = map;
+  },[tipiEvento]);
 
   if(!CONFIGURATA) return (
     <div className="gate">
@@ -2087,7 +2194,7 @@ function App(){
         {tab==="rosa"         && <Rosa membri={membri} toast={toast} />}
         {tab==="documenti"    && <Documenti documenti={documenti} membri={membri} toast={toast} />}
         {tab==="tesseramenti" && <Tesseramenti membri={membri} documenti={documenti} toast={toast} />}
-        {tab==="calendario"   && <Calendario allenamenti={allenamenti} competizioni={competizioni} toast={toast} vai={setTab} />}
+        {tab==="calendario"   && <Calendario allenamenti={allenamenti} competizioni={competizioni} tipiEvento={tipiEvento} toast={toast} vai={setTab} />}
         {tab==="allenamenti"  && <Allenamenti allenamenti={allenamenti} membri={membri} toast={toast} />}
         {tab==="risultati"    && <Risultati allenamenti={allenamenti} membri={membri} competizioni={competizioni} toast={toast} />}
         {tab==="bilancio"     && <Bilancio movimenti={movimenti} membri={membri} toast={toast} />}
