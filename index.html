@@ -523,6 +523,7 @@ function Rosa({membri, toast}){
   const [f,setF] = useState("");
   const [tipo,setTipo] = useState("Tutti");
   const [soloAttivi,setSoloAttivi] = useState(true);
+  const [selezione,setSelezione] = useState(null);   // null = modalità off; Set = ids selezionati
 
   const lista = useMemo(()=>{
     const q = f.trim().toLowerCase();
@@ -561,6 +562,21 @@ function Rosa({membri, toast}){
     if(!confirm(`Elimini ${m.nome} ${m.cognome}? I documenti collegati restano ma senza riferimento.`)) return;
     await elimina(COL.membri, m.id);
     toast("Membro eliminato");
+  };
+
+  // selezione multipla
+  const inSel = selezione !== null;
+  const toggleSel = id => setSelezione(s=>{ const n = new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
+  const selTutti = () => setSelezione(new Set(lista.map(m=>m.id)));
+  const selNessuno = () => setSelezione(new Set());
+  const eliminaSelezionati = async () => {
+    const ids = [...(selezione||[])];
+    if(!ids.length) return toast("Nessuno selezionato");
+    if(!confirm(`Eliminare ${ids.length} ${ids.length===1?"persona":"persone"}? L'operazione non è reversibile.`)) return;
+    let n = 0;
+    for(const id of ids){ try{ await elimina(COL.membri, id); n++; }catch(e){ console.error(e); } }
+    setSelezione(null);
+    toast(`${n} ${n===1?"persona eliminata":"persone eliminate"}`);
   };
 
   const esportaPDF = () => {
@@ -697,28 +713,40 @@ function Rosa({membri, toast}){
       <div className="card">
         <div className="card-h">
           <h3>Rosa — {lista.length} {lista.length===1?"persona":"persone"}</h3>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-            <input style={{width:180}} placeholder="Cerca…" value={f} onChange={e=>setF(e.target.value)} />
-            <select style={{width:130}} value={tipo} onChange={e=>setTipo(e.target.value)}>
-              <option>Tutti</option><option>Giocatore</option><option>Dirigente</option>
-            </select>
-            <label className={"chk "+(soloAttivi?"on":"")} style={{marginBottom:0}}>
-              <input type="checkbox" checked={soloAttivi} onChange={e=>setSoloAttivi(e.target.checked)} />
-              Solo attivi
-            </label>
-            <button className="btn ghost sm" onClick={esportaPDF}>PDF</button>
-            <button className="btn ghost sm" onClick={scaricaModello}>Modello</button>
-            <label className="btn ghost sm" style={{marginBottom:0,cursor:"pointer"}}>
-              {importando ? "…" : "Importa"}
-              <input type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}} onChange={scegliFileImport} disabled={importando} />
-            </label>
-            <button className="btn sm" onClick={()=>setModale({...MEMBRO_VUOTO})}>+ Aggiungi</button>
-          </div>
+          {inSel ? (
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+              <span style={{fontSize:13,color:"var(--muted)"}}>{selezione.size} selezionati</span>
+              <button className="btn ghost sm" onClick={selTutti}>Tutti</button>
+              <button className="btn ghost sm" onClick={selNessuno}>Nessuno</button>
+              <button className="btn danger sm" disabled={selezione.size===0} onClick={eliminaSelezionati}>Elimina selezionati</button>
+              <button className="btn ghost sm" onClick={()=>setSelezione(null)}>Annulla</button>
+            </div>
+          ) : (
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+              <input style={{width:180}} placeholder="Cerca…" value={f} onChange={e=>setF(e.target.value)} />
+              <select style={{width:130}} value={tipo} onChange={e=>setTipo(e.target.value)}>
+                <option>Tutti</option><option>Giocatore</option><option>Dirigente</option>
+              </select>
+              <label className={"chk "+(soloAttivi?"on":"")} style={{marginBottom:0}}>
+                <input type="checkbox" checked={soloAttivi} onChange={e=>setSoloAttivi(e.target.checked)} />
+                Solo attivi
+              </label>
+              <button className="btn ghost sm" onClick={()=>setSelezione(new Set())}>Seleziona</button>
+              <button className="btn ghost sm" onClick={esportaPDF}>PDF</button>
+              <button className="btn ghost sm" onClick={scaricaModello}>Modello</button>
+              <label className="btn ghost sm" style={{marginBottom:0,cursor:"pointer"}}>
+                {importando ? "…" : "Importa"}
+                <input type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}} onChange={scegliFileImport} disabled={importando} />
+              </label>
+              <button className="btn sm" onClick={()=>setModale({...MEMBRO_VUOTO})}>+ Aggiungi</button>
+            </div>
+          )}
         </div>
         {lista.length === 0
           ? <Vuoto titolo="Nessuno in rosa" testo="Aggiungi giocatori e dirigenti per iniziare a gestire visite e tesseramenti." />
           : <div className="tw"><table>
               <thead><tr>
+                {inSel && <th style={{width:34}}></th>}
                 <th style={{width:44}}></th><th>Nominativo</th><th>Ruolo</th><th>Nascita</th>
                 <th>Contatto</th><th>Visita medica</th><th>Tesseramento</th><th></th>
               </tr></thead>
@@ -726,8 +754,10 @@ function Rosa({membri, toast}){
                 {lista.map(m=>{
                   const v = statoVisita(m);
                   const t = m.statoTesseramento;
+                  const sel = inSel && selezione.has(m.id);
                   return (
-                    <tr key={m.id}>
+                    <tr key={m.id} style={inSel?{cursor:"pointer",background:sel?"var(--mint-soft)":undefined}:null} onClick={inSel?()=>toggleSel(m.id):undefined}>
+                      {inSel && <td><input type="checkbox" checked={sel} readOnly style={{width:16,height:16,accentColor:"var(--court)"}} /></td>}
                       <td>
                         {m.tipo==="Giocatore"
                           ? <div className="jersey">{m.numero || "–"}</div>
@@ -748,8 +778,10 @@ function Rosa({membri, toast}){
                       <td><span className={"pill "+v.cls}>{v.txt}</span></td>
                       <td><span className={"pill "+(t==="Tesserato"?"p-ok":t==="Inviato"?"p-warn":t==="Respinto"?"p-bad":"p-neutral")}>{t}</span></td>
                       <td style={{whiteSpace:"nowrap"}}>
-                        <button className="btn ghost sm" onClick={()=>setModale({...MEMBRO_VUOTO, ...m})}>Modifica</button>{" "}
-                        <button className="btn danger sm" onClick={()=>rimuovi(m)}>×</button>
+                        {!inSel && <>
+                          <button className="btn ghost sm" onClick={()=>setModale({...MEMBRO_VUOTO, ...m})}>Modifica</button>{" "}
+                          <button className="btn danger sm" onClick={()=>rimuovi(m)}>×</button>
+                        </>}
                       </td>
                     </tr>
                   );
