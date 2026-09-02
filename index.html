@@ -383,6 +383,66 @@ const coloreEvento = t => {
 const isMatch = t => comportamentoTipo(t)==="partita";
 const isAllenamento = t => comportamentoTipo(t)==="allenamento";
 
+function coloreEventoRGB(t){
+  if(t==="Partita") return [201,80,63];
+  if(t==="Amichevole") return [201,138,30];
+  if(t==="Riunione") return [107,122,117];
+  if(t==="Allenamento") return [46,158,130];
+  const c = comportamentoTipo(t);
+  return c==="partita" ? [201,80,63] : c==="allenamento" ? [46,158,130] : [107,122,117];
+}
+// Disegna la griglia di un mese (stile calendario) su una pagina jsPDF esistente.
+function disegnaMeseGriglia(doc, anno, mese, perGiorno){
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const M = 30;
+  doc.setFont("helvetica","bold"); doc.setFontSize(18); doc.setTextColor(14,26,24);
+  doc.text(`${MESI[mese]} ${anno}`, M, 40);
+  doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(107,122,117);
+  doc.text("A.S.D. "+SQUADRA, pageW-M, 40, {align:"right"});
+
+  const grid = grigliaMese(anno, mese);
+  const cols = 7;
+  const top = 56, headH = 20;
+  const cellW = (pageW - 2*M)/cols;
+  const cellH = (pageH - top - headH - M) / grid.length;
+
+  doc.setFillColor(15,61,58); doc.rect(M, top, cellW*cols, headH, "F");
+  doc.setTextColor(255,255,255); doc.setFontSize(9); doc.setFont("helvetica","bold");
+  GIORNI_SETT.forEach((g,i)=>doc.text(g, M + i*cellW + 6, top + 14));
+
+  const yStart = top + headH;
+  grid.forEach((sett, ri)=>{
+    sett.forEach((d, ci)=>{
+      const x = M + ci*cellW, y = yStart + ri*cellH;
+      doc.setDrawColor(210,220,215); doc.setLineWidth(0.5);
+      doc.rect(x, y, cellW, cellH, "S");
+      if(!d) return;
+      const oggiCella = d === oggi();
+      if(oggiCella){ doc.setFillColor(228,243,238); doc.rect(x, y, cellW, cellH, "F"); doc.rect(x, y, cellW, cellH, "S"); }
+      doc.setTextColor(oggiCella?15:80, oggiCella?61:90, oggiCella?58:86);
+      doc.setFont("helvetica","bold"); doc.setFontSize(8.5);
+      doc.text(String(+d.slice(-2)), x+5, y+12);
+      const evs = perGiorno[d]||[];
+      const chipH = 12, gap = 2;
+      const maxChips = Math.max(0, Math.floor((cellH - 18) / (chipH+gap)));
+      evs.slice(0, maxChips).forEach((e, k)=>{
+        const cy = y + 16 + k*(chipH+gap);
+        const [r,g,b] = coloreEventoRGB(e.tipo);
+        doc.setFillColor(r,g,b);
+        doc.roundedRect(x+3, cy, cellW-6, chipH, 2, 2, "F");
+        doc.setTextColor(255,255,255); doc.setFont("helvetica","normal"); doc.setFontSize(6.8);
+        const testo = (e.ora?e.ora+" ":"") + (isMatch(e.tipo) ? (e.casa?"vs ":"@ ")+(e.avversario||e.tipo) : e.tipo);
+        doc.text(doc.splitTextToSize(testo, cellW-12)[0] || "", x+6, cy+8.4);
+      });
+      if(evs.length > maxChips){
+        doc.setTextColor(107,122,117); doc.setFont("helvetica","bold"); doc.setFontSize(6.8);
+        doc.text(`+${evs.length-maxChips} altri`, x+5, y+cellH-4);
+      }
+    });
+  });
+}
+
 /* Immagini compresse lato client, PDF passano così come sono.
    Limite Firestore: 1 MB per documento -> teniamo il margine a 700 KB. */
 const LIMITE_B64 = 700 * 1024;
@@ -1376,14 +1436,11 @@ function Calendario({allenamenti, competizioni, tipiEvento, toast, vai}){
     scaricaExcel([{nome:"Calendario", righe}], `calendario_${SQUADRA.toLowerCase().replace(/ /g,"_")}.xlsx`);
   };
   const esportaPDF = () => {
-    const ord = [...allenamenti].filter(e=>e.data>=oggi()).sort((a,b)=>(a.data+a.ora).localeCompare(b.data+b.ora));
-    const body = ord.map(e=>[
-      dataIT(e.data), e.ora||"", e.tipo,
-      isMatch(e.tipo) ? `${e.competizione||""} · ${e.casa?"vs":"@"} ${e.avversario||""}` : (e.luogo||"")
-    ]);
-    salvaPDF({nomeFile:`calendario_${SQUADRA.toLowerCase().replace(/ /g,"_")}.pdf`, titolo:"Calendario",
-      sottotitolo:`Eventi in programma dal ${dataIT(oggi())}`,
-      sezioni:[{head:["Data","Ora","Tipo","Dettaglio"], body: body.length?body:[["—","","",""]]}]});
+    if(!window.jspdf || !window.jspdf.jsPDF){ alert("Libreria PDF non ancora caricata. Riprova tra un istante o ricarica la pagina."); return; }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({orientation:"landscape", unit:"pt", format:"a4"});
+    disegnaMeseGriglia(doc, anno, mese, perGiorno);
+    doc.save(`calendario_${MESI[mese].toLowerCase()}_${anno}.pdf`);
   };
 
   const inMese = allenamenti.filter(e=>e.data.startsWith(`${anno}-${String(mese+1).padStart(2,"0")}`)).length;
