@@ -2119,6 +2119,11 @@ const TIPI_MULTA_PREDEFINITI = [
   {nome:"Materiale dimenticato", importo:2, note:""}
 ];
 
+/* Messaggio leggibile per gli errori di salvataggio */
+const msgErrore = e => (e && e.code==="permission-denied")
+  ? "Permesso negato da Firebase: aggiungi fg_multe e fg_tipi_multa alle regole di Firestore"
+  : "Errore nel salvataggio: " + ((e && e.message) || e);
+
 /* Stagione sportiva: da luglio a giugno (es. 2026/27) */
 const stagioneDi = d => {
   if(!d) return "";
@@ -2162,20 +2167,25 @@ function TipiMultaManager({tipiMulta, toast, onChiudi}){
     dati.nome = dati.nome.trim();
     dati.importo = Math.round(Number(dati.importo)*100)/100;
     dati.note = (dati.note||"").trim();
-    await salva(COL.tipiMulta, id, dati);
-    setF(vuoto); toast(id ? "Tipo di multa aggiornato" : "Tipo di multa creato");
+    try{
+      await salva(COL.tipiMulta, id, dati);
+      setF(vuoto); toast(id ? "Tipo di multa aggiornato" : "Tipo di multa creato");
+    }catch(e){ console.error(e); toast(msgErrore(e)); }
   };
   const modifica = t => setF({...vuoto, ...t});
   const rimuovi = async t => {
     if(confirm(`Elimini "${t.nome}"? Le multe già registrate non cambiano.`)){
-      await elimina(COL.tipiMulta, t.id); if(f.id===t.id) setF(vuoto); toast("Tipo di multa eliminato");
+      try{ await elimina(COL.tipiMulta, t.id); if(f.id===t.id) setF(vuoto); toast("Tipo di multa eliminato"); }
+      catch(e){ console.error(e); toast(msgErrore(e)); }
     }
   };
   const caricaPredefiniti = async () => {
-    for(const t of TIPI_MULTA_PREDEFINITI){
-      if(!tipiMulta.some(x=>x.nome===t.nome)) await salva(COL.tipiMulta, null, t);
-    }
-    toast("Esempi aggiunti: modifica gli importi come preferisci");
+    try{
+      for(const t of TIPI_MULTA_PREDEFINITI){
+        if(!tipiMulta.some(x=>x.nome===t.nome)) await salva(COL.tipiMulta, null, t);
+      }
+      toast("Esempi aggiunti: modifica gli importi come preferisci");
+    }catch(e){ console.error(e); toast(msgErrore(e)); }
   };
 
   return (
@@ -2337,7 +2347,7 @@ function Multe({multe, tipiMulta, membri, toast}){
     try{
       await registra(d);
       setModale(null); toast(d.id ? "Multa aggiornata" : "Multa registrata");
-    }catch(e){ console.error(e); toast("Errore nel salvataggio: "+e.message); }
+    }catch(e){ console.error(e); toast(msgErrore(e)); }
   };
 
   const apriIncasso = m => setIncasso({multa:m, data:oggi(), metodo:m.metodo||"Contanti", registraInCassa:true});
@@ -2346,15 +2356,17 @@ function Multe({multe, tipiMulta, membri, toast}){
     try{
       await registra({...multa, importo:importoMulta(multa), pagata:true, dataPagamento:data||oggi(), metodo, registraInCassa});
       setIncasso(null); toast("Multa segnata come pagata");
-    }catch(e){ console.error(e); toast("Errore: "+e.message); }
+    }catch(e){ console.error(e); toast(msgErrore(e)); }
   };
 
   const rimuovi = async m => {
     const extra = m.movimentoId ? " Verrà tolto anche l'incasso registrato in Costi e ricavi." : "";
     if(!confirm(`Elimini la multa di ${nomeP(m.membroId)} (${eur(importoMulta(m))})?${extra}`)) return;
-    if(m.movimentoId){ try{ await elimina(COL.movimenti, m.movimentoId); }catch(e){ console.error(e); } }
-    await elimina(COL.multe, m.id);
-    toast("Multa eliminata");
+    try{
+      await elimina(COL.multe, m.id);
+      if(m.movimentoId){ try{ await elimina(COL.movimenti, m.movimentoId); }catch(e){ console.error(e); } }
+      toast("Multa eliminata");
+    }catch(e){ console.error(e); toast(msgErrore(e)); }
   };
 
   /* --- export --- */
