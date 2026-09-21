@@ -182,6 +182,10 @@ tbody tr:hover{background:#FAFBFA}
 }
 .es-row{display:grid;grid-template-columns:1fr 78px 1.3fr auto;gap:7px;margin-bottom:7px;align-items:center}
 @media(max-width:620px){.es-row{grid-template-columns:1fr 60px auto}.es-row .es-note{grid-column:1/-1}}
+.mv-row{display:grid;grid-template-columns:1.2fr 1.4fr 90px 62px auto;gap:7px;margin-bottom:7px;align-items:center}
+.mv-head{margin-bottom:4px}
+.mv-head span{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+@media(max-width:620px){.mv-row{grid-template-columns:1fr 80px 56px auto}.mv-row select,.mv-row .mv-full{grid-column:1/-1}.mv-head{display:none}}
 .score{font-family:'Archivo';font-weight:800;font-size:17px;letter-spacing:.02em}
 
 .gate{max-width:380px;margin:14vh auto;padding:0 16px}
@@ -216,7 +220,9 @@ const COL = {
   allenamenti: "fg_allenamenti",
   movimenti:   "fg_movimenti",
   competizioni:"fg_competizioni",
-  tipiEvento:  "fg_tipi_evento"
+  tipiEvento:  "fg_tipi_evento",
+  multe:       "fg_multe",
+  tipiMulta:   "fg_tipi_multa"
 };
 
 const CONFIGURATA = !FIREBASE_CONFIG.apiKey.startsWith("INSERISCI");
@@ -272,7 +278,7 @@ function opzioniCompetizioni(competizioni, valoreCorrente){
 }
 const TIPI_CARTELLINO = ["Giallo","Rosso"];
 const SQUADRA = "Futsal Fabbrico";
-const CAT_ENTRATA = ["Quote associative","Sponsor","Incassi gara","Contributi","Bar / eventi","Merchandising","Altro"];
+const CAT_ENTRATA = ["Quote associative","Sponsor","Incassi gara","Contributi","Bar / eventi","Merchandising","Multe","Altro"];
 const CAT_USCITA  = ["Iscrizione campionato","Tesseramenti","Arbitri","Affitto palestra","Abbigliamento / materiale","Trasferte","Ammende / multe","Assicurazione","Cancelleria","Altro"];
 
 /* ==================================================================
@@ -2038,6 +2044,7 @@ function Bilancio({movimenti, membri, toast}){
                     <td>
                       <strong>{m.descrizione}</strong>
                       {e && !m.incassato && <span className="pill p-warn" style={{marginLeft:6}}>da incassare</span>}
+                      {m.origine==="multa" && <span className="pill p-neutral" style={{marginLeft:6}}>da Multe</span>}
                     </td>
                     <td style={{fontSize:12,color:"var(--muted)"}}>{m.categoria}</td>
                     <td style={{fontSize:12}}>{p ? `${p.cognome} ${p.nome}` : "—"}</td>
@@ -2095,6 +2102,484 @@ function Bilancio({movimenti, membri, toast}){
           </div>
         </Modale>
       )}
+    </div>
+  );
+}
+
+/* ==================================================================
+   10b. MULTE
+   ================================================================== */
+const METODI_PAGAMENTO = ["Contanti","Bonifico","PayPal","Satispay","Carta","Altro"];
+const TIPI_MULTA_PREDEFINITI = [
+  {nome:"Ritardo all'allenamento", importo:2, note:""},
+  {nome:"Assenza ingiustificata all'allenamento", importo:5, note:""},
+  {nome:"Ritardo alla partita", importo:5, note:""},
+  {nome:"Ammonizione per proteste", importo:5, note:""},
+  {nome:"Espulsione", importo:10, note:""},
+  {nome:"Materiale dimenticato", importo:2, note:""}
+];
+
+/* Stagione sportiva: da luglio a giugno (es. 2026/27) */
+const stagioneDi = d => {
+  if(!d) return "";
+  const y = Number(d.slice(0,4)), m = Number(d.slice(5,7));
+  const a = m >= 7 ? y : y-1;
+  return `${a}/${String((a+1)%100).padStart(2,"0")}`;
+};
+const qtaVoce = v => Math.max(1, parseInt(v.qta) || 1);
+const totaleVoci = voci => (voci||[]).reduce((s,v)=>s + (Number(v.importo)||0) * qtaVoce(v), 0);
+const importoMulta = m => (m.voci && m.voci.length) ? totaleVoci(m.voci) : Number(m.importo||0);
+const causaleMulta = m => (m.voci||[]).map(v=>`${v.nome||"—"}${qtaVoce(v)>1?` ×${qtaVoce(v)}`:""}`).join(" + ") || (m.descrizione||"—");
+
+/* Opzioni della rosa raggruppate per giocatori e dirigenti */
+function OpzioniPersone({membri, corrente, tutti}){
+  const vis = membri.filter(m => tutti || m.attivo !== false || m.id === corrente);
+  const ord = arr => [...arr].sort((a,b)=>(a.cognome||"").localeCompare(b.cognome||""));
+  const g = ord(vis.filter(m=>m.tipo==="Giocatore"));
+  const d = ord(vis.filter(m=>m.tipo!=="Giocatore"));
+  return (
+    <>
+      {g.length>0 && <optgroup label="Giocatori">
+        {g.map(m=><option key={m.id} value={m.id}>{m.cognome} {m.nome}{m.numero!==""&&m.numero!=null?` (#${m.numero})`:""}</option>)}
+      </optgroup>}
+      {d.length>0 && <optgroup label="Dirigenti e staff">
+        {d.map(m=><option key={m.id} value={m.id}>{m.cognome} {m.nome}{m.ruolo?` — ${m.ruolo}`:""}</option>)}
+      </optgroup>}
+    </>
+  );
+}
+
+function TipiMultaManager({tipiMulta, toast, onChiudi}){
+  const vuoto = {nome:"", importo:"", note:""};
+  const [f,setF] = useState(vuoto);
+  const set = (k,v)=>setF(x=>({...x,[k]:v}));
+  const lista = [...tipiMulta].sort((a,b)=>(a.nome||"").localeCompare(b.nome||""));
+
+  const salvaTipo = async () => {
+    if(!f.nome.trim()) return toast("Serve il nome della multa");
+    if(f.importo==="" || !(Number(f.importo)>=0)) return toast("Indica l'importo");
+    const {id, ...dati} = f;
+    dati.nome = dati.nome.trim();
+    dati.importo = Math.round(Number(dati.importo)*100)/100;
+    dati.note = (dati.note||"").trim();
+    await salva(COL.tipiMulta, id, dati);
+    setF(vuoto); toast(id ? "Tipo di multa aggiornato" : "Tipo di multa creato");
+  };
+  const modifica = t => setF({...vuoto, ...t});
+  const rimuovi = async t => {
+    if(confirm(`Elimini "${t.nome}"? Le multe già registrate non cambiano.`)){
+      await elimina(COL.tipiMulta, t.id); if(f.id===t.id) setF(vuoto); toast("Tipo di multa eliminato");
+    }
+  };
+  const caricaPredefiniti = async () => {
+    for(const t of TIPI_MULTA_PREDEFINITI){
+      if(!tipiMulta.some(x=>x.nome===t.nome)) await salva(COL.tipiMulta, null, t);
+    }
+    toast("Esempi aggiunti: modifica gli importi come preferisci");
+  };
+
+  return (
+    <Modale titolo="Anagrafica tipi di multa" onChiudi={onChiudi} larghezza={680}>
+      <div className="row g3">
+        <Campo label="Nome" span={2}><input value={f.nome} onChange={e=>set("nome",e.target.value)} placeholder="es. Ritardo all'allenamento" /></Campo>
+        <Campo label="Importo €"><input type="number" step="0.5" min="0" value={f.importo} onChange={e=>set("importo",e.target.value)} /></Campo>
+      </div>
+      <Campo label="Note (opzionale)"><input value={f.note} onChange={e=>set("note",e.target.value)} placeholder="es. oltre 10 minuti di ritardo" /></Campo>
+      <div style={{display:"flex",gap:8,marginBottom:4}}>
+        <button className="btn sm" onClick={salvaTipo}>{f.id?"Salva modifica":"+ Aggiungi tipo"}</button>
+        {f.id && <button className="btn ghost sm" onClick={()=>setF(vuoto)}>Annulla</button>}
+      </div>
+      <div className="divider"></div>
+      {lista.length===0
+        ? <div>
+            <div className="hint" style={{marginBottom:10}}>Non hai ancora tipi di multa. Creali qui sopra oppure parti da qualche esempio già pronto e modifica gli importi.</div>
+            <button className="btn ghost sm" onClick={caricaPredefiniti}>Aggiungi esempi</button>
+          </div>
+        : <div className="tw"><table>
+            <thead><tr><th>Tipo</th><th className="num">Importo</th><th></th></tr></thead>
+            <tbody>{lista.map(t=>(
+              <tr key={t.id}>
+                <td><strong>{t.nome}</strong>{t.note && <div style={{fontSize:11,color:"var(--muted)"}}>{t.note}</div>}</td>
+                <td className="num" style={{fontWeight:700}}>{eur(t.importo)}</td>
+                <td style={{whiteSpace:"nowrap",textAlign:"right"}}>
+                  <button className="btn ghost sm" onClick={()=>modifica(t)}>Modifica</button>{" "}
+                  <button className="btn danger sm" onClick={()=>rimuovi(t)}>×</button>
+                </td>
+              </tr>
+            ))}</tbody>
+          </table></div>}
+    </Modale>
+  );
+}
+
+function Multe({multe, tipiMulta, membri, toast}){
+  const [modale,setModale] = useState(null);
+  const [incasso,setIncasso] = useState(null);
+  const [gestioneTipi,setGestioneTipi] = useState(false);
+  const [stagione,setStagione] = useState(stagioneDi(oggi()));
+  const [stato,setStato] = useState("Tutte");
+  const [persona,setPersona] = useState("");
+  const [q,setQ] = useState("");
+
+  const nomeP = useCallback(id => {
+    const m = membri.find(x=>x.id===id);
+    return m ? `${m.cognome} ${m.nome}` : "— (non più in rosa)";
+  },[membri]);
+
+  const tipiOrd = useMemo(()=>[...tipiMulta].sort((a,b)=>(a.nome||"").localeCompare(b.nome||"")),[tipiMulta]);
+
+  const stagioni = useMemo(()=>{
+    const s = new Set(multe.map(m=>stagioneDi(m.data)).filter(Boolean));
+    s.add(stagioneDi(oggi()));
+    return [...s].sort().reverse();
+  },[multe]);
+
+  const diStagione = useMemo(()=>multe.filter(m=>stagione==="Tutte" || stagioneDi(m.data)===stagione),[multe,stagione]);
+
+  const lista = useMemo(()=>{
+    const t = q.trim().toLowerCase();
+    return diStagione
+      .filter(m => stato==="Tutte" || (stato==="Da pagare" ? !m.pagata : m.pagata))
+      .filter(m => !persona || m.membroId===persona)
+      .filter(m => !t || `${nomeP(m.membroId)} ${causaleMulta(m)} ${m.note||""}`.toLowerCase().includes(t))
+      .sort((a,b)=>(b.data||"").localeCompare(a.data||""));
+  },[diStagione,stato,persona,q,nomeP]);
+
+  const totale      = diStagione.reduce((s,m)=>s+importoMulta(m),0);
+  const incassato   = diStagione.filter(m=>m.pagata).reduce((s,m)=>s+importoMulta(m),0);
+  const daIncassare = totale - incassato;
+  const aperte      = diStagione.filter(m=>!m.pagata).length;
+
+  const perPersona = useMemo(()=>{
+    const map = {};
+    diStagione.forEach(m=>{
+      const k = m.membroId||"";
+      if(!map[k]) map[k] = {id:k, n:0, tot:0, pagato:0};
+      const imp = importoMulta(m);
+      map[k].n++; map[k].tot += imp; if(m.pagata) map[k].pagato += imp;
+    });
+    return Object.values(map).sort((a,b)=>((b.tot-b.pagato)-(a.tot-a.pagato)) || (b.tot-a.tot));
+  },[diStagione]);
+
+  const perTipo = useMemo(()=>{
+    const map = {};
+    diStagione.forEach(m=>(m.voci||[]).forEach(v=>{
+      const k = v.nome || "Altro";
+      if(!map[k]) map[k] = {n:0, tot:0};
+      map[k].n += qtaVoce(v); map[k].tot += (Number(v.importo)||0)*qtaVoce(v);
+    }));
+    return Object.entries(map).sort((a,b)=>b[1].tot-a[1].tot);
+  },[diStagione]);
+  const maxTipo = Math.max(1, ...perTipo.map(([,v])=>v.tot));
+
+  /* --- voci --- */
+  const nuovaVoce = () => {
+    const t = tipiOrd[0];
+    return t ? {id:uid(), tipoId:t.id, nome:t.nome, importo:t.importo, qta:1}
+             : {id:uid(), tipoId:"custom", nome:"", importo:"", qta:1};
+  };
+  const nuova = () => setModale({
+    data:oggi(), membroId:persona||"", voci:[nuovaVoce()],
+    pagata:false, dataPagamento:"", metodo:"Contanti", registraInCassa:true, movimentoId:"", note:""
+  });
+  const apri = m => setModale({
+    pagata:false, dataPagamento:"", metodo:"Contanti", note:"", movimentoId:"",
+    registraInCassa: m.movimentoId ? true : (m.registraInCassa ?? true),
+    ...m,
+    voci: (m.voci && m.voci.length) ? m.voci.map(v=>({...v}))
+         : [{id:uid(), tipoId:"custom", nome:m.descrizione||"Multa", importo:m.importo||"", qta:1}]
+  });
+  const set = (k,v)=>setModale(m=>({...m,[k]:v}));
+  const setVoce = (id,k,v)=>setModale(m=>({...m, voci:m.voci.map(x=>x.id===id?{...x,[k]:v}:x)}));
+  const addVoce = ()=>setModale(m=>({...m, voci:[...m.voci, nuovaVoce()]}));
+  const delVoce = id=>setModale(m=>({...m, voci:m.voci.filter(x=>x.id!==id)}));
+  const scegliTipo = (id, tipoId) => {
+    if(tipoId==="custom") return setVoce(id,"tipoId","custom");
+    const t = tipiMulta.find(x=>x.id===tipoId);
+    if(!t) return;
+    setModale(m=>({...m, voci:m.voci.map(x=>x.id===id?{...x, tipoId:t.id, nome:t.nome, importo:t.importo}:x)}));
+  };
+
+  /* --- salvataggio: la multa e, se pagata, il movimento in Costi e ricavi --- */
+  const registra = async d => {
+    const {id, ...dati} = d;
+    let movId = dati.movimentoId || "";
+    if(dati.pagata && dati.registraInCassa){
+      const mov = {
+        data: dati.dataPagamento || oggi(), verso:"Entrata", categoria:"Multe",
+        descrizione: `Multa ${nomeP(dati.membroId)} — ${causaleMulta(dati)}`,
+        importo: dati.importo, metodo: dati.metodo, membroId: dati.membroId,
+        incassato:true, origine:"multa"
+      };
+      if(movId) await db.collection(COL.movimenti).doc(movId).set(mov, {merge:true});
+      else { const ref = await salva(COL.movimenti, null, mov); movId = ref.id; }
+    } else if(movId){
+      try{ await elimina(COL.movimenti, movId); }catch(e){ console.error(e); }
+      movId = "";
+    }
+    dati.movimentoId = movId;
+    await salva(COL.multe, id, dati);
+  };
+
+  const conferma = async () => {
+    const d = {...modale};
+    if(!d.membroId) return toast("Scegli chi deve pagare la multa");
+    const voci = d.voci
+      .map(v=>({id:v.id||uid(), tipoId:v.tipoId||"custom", nome:(v.nome||"").trim(), importo:Math.round((Number(v.importo)||0)*100)/100, qta:qtaVoce(v)}))
+      .filter(v=>v.nome || v.importo);
+    if(!voci.length) return toast("Aggiungi almeno una voce");
+    if(voci.some(v=>!v.nome)) return toast("Ogni voce ha bisogno di una descrizione");
+    const tot = Math.round(totaleVoci(voci)*100)/100;
+    if(!(tot>0)) return toast("Il totale deve essere maggiore di zero");
+    d.voci = voci; d.importo = tot; d.note = (d.note||"").trim();
+    if(d.pagata){ if(!d.dataPagamento) d.dataPagamento = oggi(); }
+    else d.dataPagamento = "";
+    try{
+      await registra(d);
+      setModale(null); toast(d.id ? "Multa aggiornata" : "Multa registrata");
+    }catch(e){ console.error(e); toast("Errore nel salvataggio: "+e.message); }
+  };
+
+  const apriIncasso = m => setIncasso({multa:m, data:oggi(), metodo:m.metodo||"Contanti", registraInCassa:true});
+  const confermaIncasso = async () => {
+    const {multa, data, metodo, registraInCassa} = incasso;
+    try{
+      await registra({...multa, importo:importoMulta(multa), pagata:true, dataPagamento:data||oggi(), metodo, registraInCassa});
+      setIncasso(null); toast("Multa segnata come pagata");
+    }catch(e){ console.error(e); toast("Errore: "+e.message); }
+  };
+
+  const rimuovi = async m => {
+    const extra = m.movimentoId ? " Verrà tolto anche l'incasso registrato in Costi e ricavi." : "";
+    if(!confirm(`Elimini la multa di ${nomeP(m.membroId)} (${eur(importoMulta(m))})?${extra}`)) return;
+    if(m.movimentoId){ try{ await elimina(COL.movimenti, m.movimentoId); }catch(e){ console.error(e); } }
+    await elimina(COL.multe, m.id);
+    toast("Multa eliminata");
+  };
+
+  /* --- export --- */
+  const etichettaFiltro = [stagione==="Tutte"?"Tutte le stagioni":`Stagione ${stagione}`, stato!=="Tutte"?stato.toLowerCase():"", persona?nomeP(persona):""].filter(Boolean).join(" · ");
+  const esportaCSV = () => {
+    if(!lista.length) return toast("Nessuna multa da esportare");
+    scaricaCSV([
+      ["Data","Persona","Causale","Importo","Stato","Data pagamento","Metodo","Note"],
+      ...lista.map(m=>[dataIT(m.data), nomeP(m.membroId), causaleMulta(m), String(importoMulta(m).toFixed(2)).replace(".",","),
+        m.pagata?"Pagata":"Da pagare", m.pagata?dataIT(m.dataPagamento):"", m.pagata?m.metodo:"", m.note||""])
+    ], `multe_${(stagione==="Tutte"?"tutte":stagione.replace("/","-"))}.csv`);
+  };
+  const esportaPDF = () => {
+    if(!lista.length) return toast("Nessuna multa da esportare");
+    const tot = lista.reduce((s,m)=>s+importoMulta(m),0);
+    const aperto = lista.filter(m=>!m.pagata).reduce((s,m)=>s+importoMulta(m),0);
+    salvaPDF({
+      nomeFile:`multe_${(stagione==="Tutte"?"tutte":stagione.replace("/","-"))}.pdf`, titolo:"Multe", orientamento:"landscape",
+      sottotitolo:`${etichettaFiltro} · totale ${eur(tot)} · da incassare ${eur(aperto)} · ${dataIT(oggi())}`,
+      sezioni:[{
+        head:["Data","Persona","Causale","Importo","Stato","Pagamento"],
+        body:lista.map(m=>[dataIT(m.data), nomeP(m.membroId), causaleMulta(m), eur(importoMulta(m)),
+          m.pagata?"Pagata":"Da pagare", m.pagata?`${m.metodo||""} ${dataIT(m.dataPagamento)}`:""])
+      }]
+    });
+  };
+
+  const totModale = modale ? totaleVoci(modale.voci) : 0;
+
+  return (
+    <div className="section">
+      <div className="grid g4" style={{marginBottom:14}}>
+        <Stat k="Multe" v={diStagione.length} s={stagione==="Tutte"?"tutte le stagioni":`stagione ${stagione}`} />
+        <Stat k="Totale" v={eur(totale)} s="importo complessivo" />
+        <Stat k="Incassato" v={eur(incassato)} s="multe pagate" tono="mint" />
+        <Stat k="Da incassare" v={eur(daIncassare)} s={`${aperte} ${aperte===1?"multa aperta":"multe aperte"}`} tono={daIncassare>0?"amber":"mint"} />
+      </div>
+
+      {tipiOrd.length===0 && (
+        <div className="card" style={{marginBottom:14}}><div className="card-b" style={{display:"flex",gap:12,alignItems:"center",justifyContent:"space-between",flexWrap:"wrap"}}>
+          <div style={{fontSize:13}}><strong>Crea prima l'anagrafica delle multe</strong> <span style={{color:"var(--muted)"}}>— così scegliendo il tipo l'importo si compila da solo.</span></div>
+          <button className="btn sm" onClick={()=>setGestioneTipi(true)}>Tipi di multa</button>
+        </div></div>
+      )}
+
+      <div className="grid g2" style={{marginBottom:14}}>
+        <div className="card">
+          <div className="card-h"><h3>Situazione per persona</h3></div>
+          {perPersona.length===0
+            ? <Vuoto titolo="Nessuna multa" testo="Qui vedrai chi ha multe e quanto deve ancora." />
+            : <div className="tw"><table>
+                <thead><tr><th>Persona</th><th className="num">N.</th><th className="num">Totale</th><th className="num">Deve</th></tr></thead>
+                <tbody>{perPersona.map(p=>{
+                  const resto = p.tot - p.pagato;
+                  return (
+                    <tr key={p.id} style={{cursor:"pointer"}} title="Mostra solo le sue multe" onClick={()=>setPersona(persona===p.id?"":p.id)}>
+                      <td><strong>{nomeP(p.id)}</strong>{persona===p.id && <span className="pill p-neutral" style={{marginLeft:6}}>filtro</span>}</td>
+                      <td className="num">{p.n}</td>
+                      <td className="num">{eur(p.tot)}</td>
+                      <td className="num" style={{fontWeight:700,color:resto>0?"var(--coral)":"var(--mint)"}}>{resto>0?eur(resto):"in regola"}</td>
+                    </tr>
+                  );
+                })}</tbody>
+              </table></div>}
+        </div>
+
+        <div className="card">
+          <div className="card-h"><h3>Per tipologia</h3></div>
+          <div className="card-b">
+            {perTipo.length===0
+              ? <Vuoto titolo="Nessun dato" testo="" />
+              : perTipo.map(([nome,v])=>(
+                  <div key={nome} style={{marginBottom:11}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4,gap:8}}>
+                      <span>{nome} <span style={{color:"var(--muted)"}}>×{v.n}</span></span>
+                      <span className="mono" style={{fontWeight:600}}>{eur(v.tot)}</span>
+                    </div>
+                    <div className="bar"><i style={{width:(v.tot/maxTipo*100)+"%",background:"var(--amber)"}}></i></div>
+                  </div>
+                ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-h">
+          <h3>Registro multe — {lista.length}</h3>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <button className="btn ghost sm" onClick={()=>setGestioneTipi(true)}>Tipi di multa</button>
+            <button className="btn ghost sm" onClick={esportaCSV}>CSV</button>
+            <button className="btn ghost sm" onClick={esportaPDF}>PDF</button>
+            <button className="btn sm" onClick={nuova}>+ Nuova multa</button>
+          </div>
+        </div>
+        <div className="card-b" style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",paddingBottom:4}}>
+          <input style={{width:180}} placeholder="Cerca…" value={q} onChange={e=>setQ(e.target.value)} />
+          <select style={{width:140}} value={stagione} onChange={e=>setStagione(e.target.value)}>
+            <option value="Tutte">Tutte le stagioni</option>
+            {stagioni.map(s=><option key={s} value={s}>{s}</option>)}
+          </select>
+          <select style={{width:130}} value={stato} onChange={e=>setStato(e.target.value)}>
+            <option>Tutte</option><option>Da pagare</option><option>Pagate</option>
+          </select>
+          <select style={{width:210}} value={persona} onChange={e=>setPersona(e.target.value)}>
+            <option value="">Tutte le persone</option>
+            <OpzioniPersone membri={membri} tutti />
+          </select>
+        </div>
+        {lista.length===0
+          ? <Vuoto titolo={multe.length?"Nessuna multa con questi filtri":"Registro vuoto"} testo={multe.length?"Prova a cambiare stagione, stato o persona.":"Registra la prima multa con “+ Nuova multa”."} />
+          : <div className="tw"><table>
+              <thead><tr><th>Data</th><th>Persona</th><th>Causale</th><th className="num">Importo</th><th>Stato</th><th></th></tr></thead>
+              <tbody>{lista.map(m=>{
+                const g = giorniA(m.data);
+                return (
+                  <tr key={m.id}>
+                    <td className="mono" style={{whiteSpace:"nowrap"}}>{dataIT(m.data)}</td>
+                    <td><strong>{nomeP(m.membroId)}</strong></td>
+                    <td style={{fontSize:12}}>
+                      {causaleMulta(m)}
+                      {m.note && <div style={{fontSize:11,color:"var(--muted)"}}>{m.note}</div>}
+                    </td>
+                    <td className="num" style={{fontWeight:700,whiteSpace:"nowrap"}}>{eur(importoMulta(m))}</td>
+                    <td style={{whiteSpace:"nowrap"}}>
+                      {m.pagata
+                        ? <><span className="pill p-ok">Pagata</span><div style={{fontSize:11,color:"var(--muted)",marginTop:3}}>{m.metodo} · {dataIT(m.dataPagamento)}</div></>
+                        : <><span className="pill p-warn">Da pagare</span>{g<0 && <div style={{fontSize:11,color:"var(--muted)",marginTop:3}}>da {-g} gg</div>}</>}
+                    </td>
+                    <td style={{whiteSpace:"nowrap",textAlign:"right"}}>
+                      {!m.pagata && <><button className="btn sm" onClick={()=>apriIncasso(m)}>Incassa</button>{" "}</>}
+                      <button className="btn ghost sm" onClick={()=>apri(m)}>Modifica</button>{" "}
+                      <button className="btn danger sm" onClick={()=>rimuovi(m)}>×</button>
+                    </td>
+                  </tr>
+                );
+              })}</tbody>
+            </table></div>}
+      </div>
+
+      {modale && (
+        <Modale titolo={modale.id?"Modifica multa":"Nuova multa"} onChiudi={()=>setModale(null)} onSalva={conferma} larghezza={740}>
+          <div className="row g2">
+            <Campo label="Chi deve pagare">
+              <select value={modale.membroId} onChange={e=>set("membroId",e.target.value)}>
+                <option value="">— Scegli dalla rosa —</option>
+                <OpzioniPersone membri={membri} corrente={modale.membroId} />
+              </select>
+            </Campo>
+            <Campo label="Data della multa"><input type="date" value={modale.data} onChange={e=>set("data",e.target.value)} /></Campo>
+          </div>
+
+          <label>Voci della multa</label>
+          {tipiOrd.length===0 && <div className="hint" style={{marginTop:0,marginBottom:8}}>Nessun tipo in anagrafica: puoi comunque inserire voci personalizzate, oppure crea i tipi con il pulsante “Tipi di multa”.</div>}
+          <div className="mv-row mv-head"><span>Tipo</span><span>Descrizione</span><span>Importo €</span><span>Q.tà</span><span></span></div>
+          {modale.voci.map(v=>(
+            <div key={v.id} className="mv-row">
+              <select value={v.tipoId} onChange={e=>scegliTipo(v.id,e.target.value)}>
+                {tipiOrd.map(t=><option key={t.id} value={t.id}>{t.nome} — {eur(t.importo)}</option>)}
+                {v.tipoId!=="custom" && !tipiOrd.some(t=>t.id===v.tipoId) && <option value={v.tipoId}>{v.nome} (tipo eliminato)</option>}
+                <option value="custom">✎ Personalizzata…</option>
+              </select>
+              <input className="mv-full" value={v.nome} onChange={e=>setVoce(v.id,"nome",e.target.value)} placeholder={v.tipoId==="custom"?"es. Ritardo + cellulare in spogliatoio":"Descrizione"} />
+              <input type="number" step="0.5" min="0" value={v.importo} onChange={e=>setVoce(v.id,"importo",e.target.value)} />
+              <input type="number" step="1" min="1" value={v.qta} onChange={e=>setVoce(v.id,"qta",e.target.value)} />
+              <button className="btn danger sm" onClick={()=>delVoce(v.id)} disabled={modale.voci.length===1} title="Togli voce">×</button>
+            </div>
+          ))}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginTop:4,flexWrap:"wrap"}}>
+            <button className="btn ghost sm" onClick={addVoce}>+ Aggiungi voce</button>
+            <div style={{fontSize:13,color:"var(--muted)"}}>Totale <span style={{fontFamily:"Archivo",fontWeight:800,fontSize:22,color:"var(--ink)",marginLeft:6}}>{eur(totModale)}</span></div>
+          </div>
+
+          <div className="divider"></div>
+
+          <label className={"chk "+(modale.pagata?"on":"")} style={{marginBottom:10}}>
+            <input type="checkbox" checked={!!modale.pagata} onChange={e=>{
+              const on = e.target.checked;
+              setModale(m=>({...m, pagata:on, dataPagamento: on ? (m.dataPagamento||oggi()) : m.dataPagamento}));
+            }} />
+            Già pagata
+          </label>
+          {modale.pagata && (
+            <>
+              <div className="row g2">
+                <Campo label="Data pagamento"><input type="date" value={modale.dataPagamento} onChange={e=>set("dataPagamento",e.target.value)} /></Campo>
+                <Campo label="Metodo">
+                  <select value={modale.metodo} onChange={e=>set("metodo",e.target.value)}>
+                    {METODI_PAGAMENTO.map(x=><option key={x}>{x}</option>)}
+                    {modale.metodo && !METODI_PAGAMENTO.includes(modale.metodo) && <option>{modale.metodo}</option>}
+                  </select>
+                </Campo>
+              </div>
+              <label className={"chk "+(modale.registraInCassa?"on":"")} style={{marginBottom:12}}>
+                <input type="checkbox" checked={!!modale.registraInCassa} onChange={e=>set("registraInCassa",e.target.checked)} />
+                Registra l'incasso in Costi e ricavi
+              </label>
+            </>
+          )}
+          <Campo label="Note"><textarea rows="2" value={modale.note} onChange={e=>set("note",e.target.value)} /></Campo>
+        </Modale>
+      )}
+
+      {incasso && (
+        <Modale titolo="Incassa multa" onChiudi={()=>setIncasso(null)} onSalva={confermaIncasso} salvaLabel="Segna come pagata" larghezza={460}>
+          <div style={{marginBottom:14}}>
+            <div style={{fontWeight:700}}>{nomeP(incasso.multa.membroId)}</div>
+            <div style={{fontSize:12,color:"var(--muted)"}}>{causaleMulta(incasso.multa)}</div>
+            <div style={{fontFamily:"Archivo",fontWeight:800,fontSize:24,marginTop:6}}>{eur(importoMulta(incasso.multa))}</div>
+          </div>
+          <div className="row g2">
+            <Campo label="Data pagamento"><input type="date" value={incasso.data} onChange={e=>setIncasso(x=>({...x,data:e.target.value}))} /></Campo>
+            <Campo label="Metodo">
+              <select value={incasso.metodo} onChange={e=>setIncasso(x=>({...x,metodo:e.target.value}))}>
+                {METODI_PAGAMENTO.map(x=><option key={x}>{x}</option>)}
+              </select>
+            </Campo>
+          </div>
+          <label className={"chk "+(incasso.registraInCassa?"on":"")}>
+            <input type="checkbox" checked={incasso.registraInCassa} onChange={e=>setIncasso(x=>({...x,registraInCassa:e.target.checked}))} />
+            Registra l'incasso in Costi e ricavi
+          </label>
+        </Modale>
+      )}
+
+      {gestioneTipi && <TipiMultaManager tipiMulta={tipiMulta} toast={toast} onChiudi={()=>setGestioneTipi(false)} />}
     </div>
   );
 }
@@ -2213,7 +2698,8 @@ const TAB = [
   ["risultati","Risultati"],
   ["documenti","Documenti"],
   ["tesseramenti","Tesseramenti"],
-  ["bilancio","Costi e ricavi"]
+  ["bilancio","Costi e ricavi"],
+  ["multe","Multe"]
 ];
 
 function App(){
@@ -2236,6 +2722,8 @@ function App(){
   const [movimenti]   = useCollection(COL.movimenti, ok);
   const [competizioni] = useCollection(COL.competizioni, ok);
   const [tipiEvento]  = useCollection(COL.tipiEvento, ok);
+  const [multe]       = useCollection(COL.multe, ok);
+  const [tipiMulta]   = useCollection(COL.tipiMulta, ok);
 
   useEffect(()=>{
     const map = {};
@@ -2287,6 +2775,7 @@ function App(){
         {tab==="allenamenti"  && <Allenamenti allenamenti={allenamenti} membri={membri} toast={toast} />}
         {tab==="risultati"    && <Risultati allenamenti={allenamenti} membri={membri} competizioni={competizioni} toast={toast} />}
         {tab==="bilancio"     && <Bilancio movimenti={movimenti} membri={membri} toast={toast} />}
+        {tab==="multe"        && <Multe multe={multe} tipiMulta={tipiMulta} membri={membri} toast={toast} />}
       </div>
 
       {msg && <div className="toast">{msg}</div>}
