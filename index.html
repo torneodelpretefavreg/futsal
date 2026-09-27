@@ -207,6 +207,51 @@ tbody tr:hover{background:#FAFBFA}
 .sc-help{margin:0;padding-left:18px;font-size:13px;color:var(--muted)}
 .sc-help li{margin-bottom:6px}
 .sc-card{overflow:hidden;box-shadow:none}
+.sc-head-l{display:flex;gap:8px;align-items:center;flex:1 1 320px;min-width:0}
+.sc-head-r{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.sc-toolbar{position:sticky;top:0;z-index:20;margin-top:10px;padding:8px 10px}
+.sc-tool .sh,.btn .sh{display:none}
+.sc-campo{padding:10px}
+.sc-fasi-lista,.sc-fasi-az{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.sc-fasi-lista{flex:1 1 auto}
+.sc-imp{grid-template-columns:1fr 1fr}
+.sc-det summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--court);list-style:none}
+.sc-det summary:empty{display:none}
+.sc-det[open] summary{margin-bottom:8px}
+@media(max-width:620px){
+  .sc-head{padding:10px}
+  .sc-head-l{flex:1 1 100%}
+  .sc-head-r{width:100%;flex-wrap:nowrap}
+  .sc-head-r .btn{flex:1;justify-content:center;padding:8px 6px}
+  .sc-head-r .pill{display:none}
+  .sc-tool .lg,.btn .lg,.sc-head .lg,.sc-fasi .lg{display:none}
+  .sc-tool .sh,.btn .sh{display:inline}
+  .sc-toolbar{margin:8px -10px 0;border-radius:0;border-left:0;border-right:0;padding:6px 8px}
+  .sc-tools{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;gap:5px}
+  .sc-tools::-webkit-scrollbar{display:none}
+  .sc-tool{padding:8px 9px;font-size:12px;flex:none}
+  .sc-sep{flex:none}
+  .sc-campo{padding:6px;margin:0 -6px}
+  .sc-layout{margin-top:8px !important;gap:10px}
+  .sc-fasi{flex-direction:column;align-items:stretch;gap:6px}
+  .sc-fasi-lista{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+  .sc-fasi-lista::-webkit-scrollbar{display:none}
+  .sc-fasi-lista>*{flex:none}
+  .sc-fasi-az .sc-play{flex:1;justify-content:center;padding:8px}
+}
+@media(max-width:620px){
+  .shell{padding:0 10px 80px}
+  .topbar-in{padding-top:12px}
+  .brand h1{font-size:18px}
+  .brand span{display:none}
+  .userbar{top:10px;right:10px}
+  .userbar span{display:none}
+  .tabs{margin-top:8px}
+  .tab{padding:9px 11px}
+  input,select,textarea{font-size:16px}
+  .card-h{padding:12px}
+  .card-b{padding:12px}
+}
 @media (prefers-reduced-motion: no-preference){
   .tab,.btn{transition:all .14s ease}
 }
@@ -2628,10 +2673,10 @@ const TEMI_CAMPO = {
   lavagna: {nome:"Bianco (stampa)", fondo:"#E9EEEC", campo:"#FFFFFF", striscia:"#FFFFFF", linee:"#2A433E", freccia:"#1B2B28", tiro:"#C2410C", testo:"#1B2B28", ombra:"rgba(255,255,255,.85)", bordo:"#1B2B28", rete:"rgba(0,0,0,.06)"}
 };
 const TIPI_FRECCIA = {
-  corsa:      {nome:"Movimento",  simbolo:"→"},
-  passaggio:  {nome:"Passaggio",  simbolo:"⇢"},
-  conduzione: {nome:"Conduzione", simbolo:"∿"},
-  tiro:       {nome:"Tiro",       simbolo:"➔"}
+  corsa:      {nome:"Movimento",  corto:"Corsa", simbolo:"→"},
+  passaggio:  {nome:"Passaggio",  corto:"Pass.", simbolo:"⇢"},
+  conduzione: {nome:"Conduzione", corto:"Cond.", simbolo:"∿"},
+  tiro:       {nome:"Tiro",       corto:"Tiro",  simbolo:"➔"}
 };
 const R_PEDINA = 0.62, R_PALLA = 0.32, R_CONO = 0.4, MARGINE = 1.6;
 
@@ -2674,7 +2719,7 @@ function normalizzaSchema(S){
   n.vista = n.vista==="meta" ? "meta" : "intero";
   n.tema = TEMI_CAMPO[n.tema] ? n.tema : "verde";
   n.coloreCasa = n.coloreCasa||"#1D4ED8"; n.coloreOspite = n.coloreOspite||"#DC2626";
-  n.velocita = Number(n.velocita)||1;
+  n.velocita = Number(n.velocita)||1; n.pause = n.pause==null ? 1 : Number(n.pause);
   n.oggetti = Array.isArray(n.oggetti) ? n.oggetti : [];
   n.fasi = (Array.isArray(n.fasi) && n.fasi.length ? n.fasi : [{}]).map(F=>({
     id:F.id||uid(), nota:F.nota||"", pos:F.pos||{}, frecce:Array.isArray(F.frecce)?F.frecce:[], testi:Array.isArray(F.testi)?F.testi:[]
@@ -2683,7 +2728,7 @@ function normalizzaSchema(S){
 }
 
 /* ---------- geometria vista ---------- */
-function vistaCampo(vista){
+function vistaCampo(vista, verticale){
   const M = MARGINE;
   if(vista==="meta") return { // metà campo d'attacco, porta in alto
     Wm:20+2*M, Hm:20+2*M,
@@ -2691,10 +2736,17 @@ function vistaCampo(vista){
     unmap:(u,v)=>[40-(v-M), u-M],
     mat:[0,-1,1,0,M,40+M]
   };
+  if(verticale) return { // campo intero in verticale (telefono): porta d'attacco in alto
+    Wm:20+2*M, Hm:40+2*M,
+    map:(x,y)=>[y+M, 40-x+M],
+    unmap:(u,v)=>[40-(v-M), u-M],
+    mat:[0,-1,1,0,M,40+M]
+  };
   return { Wm:40+2*M, Hm:20+2*M, map:(x,y)=>[x+M,y+M], unmap:(u,v)=>[u-M,v-M], mat:[1,0,0,1,M,M] };
 }
-function creaP(V,s,ox,oy){
-  return {V,s,ox,oy,toS:(x,y)=>{ const [u,v]=V.map(x,y); return [ox+u*s, oy+v*s]; }};
+/* k = ingrandimento di pedine, frecce e testi (sul telefono, per restare leggibili e toccabili) */
+function creaP(V,s,ox,oy,k){
+  return {V,s,ox,oy,k:k||1,toS:(x,y)=>{ const [u,v]=V.map(x,y); return [ox+u*s, oy+v*s]; }};
 }
 const easeIO = t => t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
 
@@ -2793,7 +2845,7 @@ function disegnaCampo(ctx, tema, P){
 
 function disegnaFreccia(ctx, f, P, T, {t0=0, alpha=1}={}){
   if(alpha<=0.01 || t0>=0.97) return;
-  const B=curvaFreccia(f), s=P.s;
+  const B=curvaFreccia(f), s=P.s*(P.k||1);
   const n = f.tipo==="conduzione" ? 160 : 40;
   const pts=[];
   for(let k=0;k<=n;k++){ const t=t0+(1-t0)*k/n; const [x,y]=B(t); pts.push(P.toS(x,y)); }
@@ -2832,7 +2884,7 @@ function disegnaFreccia(ctx, f, P, T, {t0=0, alpha=1}={}){
 }
 
 function disegnaOggetto(ctx, o, x, y, P, S, T, sel){
-  const [px,py]=P.toS(x,y), s=P.s;
+  const [px,py]=P.toS(x,y), s=P.s*(P.k||1);
   ctx.save();
   if(o.tipo==="palla"){
     const r=R_PALLA*s;
@@ -2877,7 +2929,7 @@ function disegnaOggetto(ctx, o, x, y, P, S, T, sel){
 
 function disegnaTesto(ctx, t, P, T, alpha, sel){
   if(alpha<=0.01) return;
-  const [px,py]=P.toS(t.x,t.y), s=P.s;
+  const [px,py]=P.toS(t.x,t.y), s=P.s*(P.k||1);
   ctx.save(); ctx.globalAlpha=alpha;
   ctx.font=`800 ${.85*s}px Archivo, sans-serif`; ctx.textAlign="center"; ctx.textBaseline="middle";
   ctx.lineJoin="round"; ctx.lineWidth=.24*s; ctx.strokeStyle=T.ombra; ctx.strokeText(t.testo,px,py);
@@ -2897,11 +2949,11 @@ function maniglieFreccia(f){
   return out;
 }
 function disegnaManiglie(ctx, f, P){
-  const r=Math.max(5,.3*P.s);
+  const r=Math.max(5,.3*P.s*(P.k||1));
   maniglieFreccia(f).map(([h,x,y])=>[x,y,(h==="start"||h==="end")?"#FFFFFF":"#F59E0B"]).forEach(([x,y,c])=>{
     const [px,py]=P.toS(x,y);
     ctx.beginPath(); ctx.arc(px,py,r,0,Math.PI*2); ctx.fillStyle=c; ctx.fill();
-    ctx.lineWidth=Math.max(1.5,.07*P.s); ctx.strokeStyle="#B45309"; ctx.stroke();
+    ctx.lineWidth=Math.max(1.5,.07*P.s*(P.k||1)); ctx.strokeStyle="#B45309"; ctx.stroke();
   });
 }
 
@@ -2952,7 +3004,7 @@ function disegnaScena(ctx, S, P, stato, extra={}){
   const e = inMoto ? easeIO(stato.prog) : 0;
   const usate = new Set(Object.values(mov).map(m=>m.f.id));
   const aF = inMoto ? 1-stato.prog : (stato.alphaFrecce==null ? 1 : stato.alphaFrecce);
-  const stacco = f => { if(!f.da) return 0; const L=curvaFreccia(f).len||1; return Math.min(.45,(R_PEDINA+.12)/L); };
+  const stacco = f => { if(!f.da) return 0; const L=curvaFreccia(f).len||1; return Math.min(.45,(R_PEDINA*(P.k||1)+.12)/L); };
   (F.frecce||[]).forEach(f=>{
     if(inMoto && usate.has(f.id)) disegnaFreccia(ctx,f,P,T,{t0:Math.min(.97,e+stacco(f)*(1-e)), alpha:1});
     else disegnaFreccia(ctx,f,P,T,{t0:stacco(f), alpha:aF});
@@ -3001,10 +3053,13 @@ function schemaAnimabile(S){
 }
 
 /* Sequenza temporale dell'animazione (secondi) */
+const VELOCITA_VIDEO = [[0.6,"Lenta"],[1,"Normale"],[1.5,"Veloce"],[2,"Molto veloce"],[3,"Rapidissima"]];
+const PAUSE_VIDEO = [[1,"Normali"],[0.5,"Brevi"],[0.15,"Quasi nulle"]];
 function timelineSchema(S){
-  const vel=Number(S.velocita)||1, N=S.fasi.length, seg=[];
+  const vel=Number(S.velocita)||1, pausa=(S.pause==null?1:Number(S.pause)), N=S.fasi.length, seg=[];
   for(let i=0;i<N;i++){
-    seg.push({tipo:"hold", fase:i, dur:(i===N-1 ? 2.4 : i===0 ? 1.4 : 0.9)/vel});
+    const base = i===N-1 ? Math.max(0.9, 2.4*pausa) : (i===0 ? 1.4 : 0.9)*pausa;
+    seg.push({tipo:"hold", fase:i, dur:Math.max(0.05, base/vel)});
     if(i<N-1) seg.push({tipo:"move", fase:i, dur:1.6/vel});
   }
   const tot=seg.reduce((a,x)=>a+x.dur,0);
@@ -3130,7 +3185,7 @@ const erroreSchemi = e => (e && e.code==="permission-denied")
   : "Errore nel salvataggio: " + ((e && e.message) || e);
 
 /* ---------- modale di esportazione ---------- */
-function EsportaSchema({S, fase, onChiudi, toast}){
+function EsportaSchema({S, fase, onChiudi, toast, onCampo}){
   const [busy,setBusy] = useState(null);
   const [prog,setProg] = useState(0);
   const [ris,setRis] = useState(null);
@@ -3202,8 +3257,22 @@ function EsportaSchema({S, fase, onChiudi, toast}){
         <button className="btn ghost" disabled={!!busy} onClick={pdf}>PDF con tutte le fasi</button>
         <button className="btn" disabled={!!busy} onClick={video}>Video dell'animazione</button>
       </div>
+      {onCampo && (
+        <div className="row g2" style={{marginBottom:4}}>
+          <Campo label="Velocità dell'azione">
+            <select value={S.velocita} disabled={!!busy} onChange={e=>onCampo("velocita",Number(e.target.value))}>
+              {VELOCITA_VIDEO.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+            </select>
+          </Campo>
+          <Campo label="Pause tra le fasi">
+            <select value={S.pause==null?1:S.pause} disabled={!!busy} onChange={e=>onCampo("pause",Number(e.target.value))}>
+              {PAUSE_VIDEO.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+            </select>
+          </Campo>
+        </div>
+      )}
       <div className="hint" style={{marginBottom:12}}>
-        Il video riproduce le fasi in sequenza ({timelineSchema(schemaAnimabile(S)).tot.toFixed(0)} secondi circa, velocità dalle impostazioni); le frecce dell'ultima fase vengono eseguite alla fine.
+        Durata del video: circa {timelineSchema(schemaAnimabile(S)).tot.toFixed(1)} secondi. Le frecce dell'ultima fase vengono eseguite alla fine.
         Durante la registrazione tieni questa finestra aperta e in primo piano.
       </div>
       <canvas ref={cvRef} style={{width:"100%", borderRadius:8, display: busy==="video" ? "block" : "none"}} />
@@ -3235,7 +3304,7 @@ function EsportaSchema({S, fase, onChiudi, toast}){
 
 /* ---------- editor ---------- */
 const STRUMENTI_PEDINE = [
-  ["casa","Nostro"],["gkCasa","Nostro portiere"],["ospite","Avversario"],["gkOspite","Portiere avv."],["palla","Palla"],["cono","Cono"]
+  ["casa","Nostro","Nostro"],["gkCasa","Nostro portiere","Portiere"],["ospite","Avversario","Avv."],["gkOspite","Portiere avv.","Port. avv."],["palla","Palla","Palla"],["cono","Cono","Cono"]
 ];
 
 function IconaStrumento({k, S}){
@@ -3264,11 +3333,16 @@ function EditorSchema({iniziale, membri, toast, onChiudi}){
   const [larg,setLarg] = useState(800);
   const [salvando,setSalvando] = useState(false);
 
-  const V = useMemo(()=>vistaCampo(S.vista),[S.vista]);
+  const stretto = larg < 560;
+  const V = useMemo(()=>vistaCampo(S.vista, stretto && S.vista==="intero"),[S.vista, stretto]);
   const F = S.fasi[Math.min(fase,S.fasi.length-1)];
   const dpr = Math.min(2.5, window.devicePixelRatio||1);
-  const cssW = Math.max(260, Math.min(larg, S.vista==="meta" ? 640 : 1100));
-  const cssH = Math.round(cssW*V.Hm/V.Wm);
+  const maxH = Math.max(300, (window.innerHeight||800) * (stretto ? 0.72 : 0.8));
+  let cssW = Math.max(240, Math.min(larg, S.vista==="meta" ? 640 : 1100));
+  let cssH = Math.round(cssW*V.Hm/V.Wm);
+  if(cssH>maxH){ cssH=Math.round(maxH); cssW=Math.round(cssH*V.Wm/V.Hm); }
+  // pedine almeno ~12 px di raggio sullo schermo
+  const kPed = Math.max(1, Math.min(2, 12/(R_PEDINA*cssW/V.Wm)));
 
   useEffect(()=>{
     const el=wrapRef.current; if(!el || !window.ResizeObserver) return;
@@ -3295,7 +3369,7 @@ function EditorSchema({iniziale, membri, toast, onChiudi}){
   };
   const setCampo = (k,v) => mut(n=>{ n[k]=v; }, false);
 
-  const getP = () => { const cv=cvRef.current; return creaP(V, cv.width/V.Wm, 0, 0); };
+  const getP = () => { const cv=cvRef.current; return creaP(V, cv.width/V.Wm, 0, 0, kPed); };
 
   // disegno statico
   useEffect(()=>{
@@ -3335,7 +3409,7 @@ function EditorSchema({iniziale, membri, toast, onChiudi}){
     [...Sx.oggetti].sort((a,b)=>(ordine[a.tipo]||0)-(ordine[b.tipo]||0)).forEach(o=>{
       if(o.id===escludi) return;
       const q=Fx.pos[o.id]; if(!q) return;
-      const r=o.tipo==="palla"?R_PALLA:o.tipo==="cono"?R_CONO:R_PEDINA;
+      const r=(o.tipo==="palla"?R_PALLA:o.tipo==="cono"?R_CONO:R_PEDINA)*kPed;
       const d=Math.hypot(q.x-p.x,q.y-p.y);
       if(d<r+tol && d<bd){ bd=d; best=o.id; }
     });
@@ -3539,56 +3613,59 @@ function EditorSchema({iniziale, membri, toast, onChiudi}){
   return (
     <div className="section">
       <div className="card">
-        <div className="card-h">
-          <div style={{display:"flex",gap:8,alignItems:"center",flex:"1 1 320px",minWidth:0}}>
-            <button className="btn ghost sm" onClick={esci}>← Schemi</button>
+        <div className="card-h sc-head">
+          <div className="sc-head-l">
+            <button className="btn ghost sm" style={{whiteSpace:"nowrap"}} onClick={esci}>← <span className="lg">Schemi</span></button>
             <input value={S.nome} placeholder="Nome dello schema (es. Angolo — blocco sul primo palo)" onChange={e=>setCampo("nome",e.target.value)} style={{fontWeight:600}} />
           </div>
-          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <div className="sc-head-r">
             {dirty && <span className="pill p-warn">Non salvato</span>}
-            <button className="btn ghost" onClick={annulla} disabled={!storia.current.length || play} title="Annulla (Ctrl+Z)">↶ Annulla</button>
-            <button className="btn ghost" onClick={()=>setEsporta(true)} disabled={play}>Esporta foto / video</button>
-            <button className="btn" onClick={salvaSchema} disabled={salvando}>{salvando?"Salvataggio…":"Salva"}</button>
+            <button className="btn ghost" onClick={annulla} disabled={!storia.current.length || play} title="Annulla (Ctrl+Z)">↶ <span className="lg">Annulla</span></button>
+            <button className="btn ghost" onClick={()=>setEsporta(true)} disabled={play}><span className="lg">Esporta foto / video</span><span className="sh">Esporta</span></button>
+            <button className="btn" onClick={salvaSchema} disabled={salvando}>{salvando?"Salvo…":"Salva"}</button>
           </div>
         </div>
-        <div className="card-b" style={{paddingBottom:8}}>
-          <div className="sc-tools">
-            {btnTool("sposta","↖ Seleziona / sposta")}
-            <span className="sc-sep"></span>
-            {STRUMENTI_PEDINE.map(([k,l])=>btnTool(k,<><IconaStrumento k={k} S={S} />{l}</>,"Tocca il campo per aggiungere"))}
-            <span className="sc-sep"></span>
-            {Object.entries(TIPI_FRECCIA).map(([k,v])=>btnTool(k,<><b style={{fontWeight:800}}>{v.simbolo}</b>{v.nome}</>,"Trascina partendo da una pedina"))}
-            {btnTool("testo",<><b style={{fontWeight:800}}>T</b>Testo</>,"Tocca il campo per scrivere")}
-          </div>
+      </div>
+      <div className="card sc-toolbar">
+        <div className="sc-tools">
+          {btnTool("sposta",<>↖<span className="lg">Seleziona / sposta</span><span className="sh">Sposta</span></>)}
+          <span className="sc-sep"></span>
+          {STRUMENTI_PEDINE.map(([k,l,c])=>btnTool(k,<><IconaStrumento k={k} S={S} /><span className="lg">{l}</span><span className="sh">{c}</span></>,"Tocca il campo per aggiungere"))}
+          <span className="sc-sep"></span>
+          {Object.entries(TIPI_FRECCIA).map(([k,v])=>btnTool(k,<><b style={{fontWeight:800}}>{v.simbolo}</b><span className="lg">{v.nome}</span><span className="sh">{v.corto}</span></>,"Trascina partendo da una pedina"))}
+          {btnTool("testo",<><b style={{fontWeight:800}}>T</b><span className="lg">Testo</span><span className="sh">Testo</span></>,"Tocca il campo per scrivere")}
         </div>
       </div>
 
       <div className="sc-layout section" style={{marginTop:14}}>
         <div style={{minWidth:0}}>
-          <div className="card" style={{padding:10}}>
+          <div className="card sc-campo">
             <div ref={wrapRef} style={{width:"100%"}}>
               <canvas ref={cvRef} className="sc-canvas"
                 style={{width:cssW, height:cssH, cursor: tool==="sposta" ? "default" : "crosshair"}}
                 onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} />
             </div>
             <div className="sc-fasi">
-              {S.fasi.map((x,i)=>(
-                <button key={x.id} className={"sc-fase "+(i===fase?"on":"")} disabled={play} onClick={()=>{ setFase(i); setSel(null); }}>Fase {i+1}</button>
-              ))}
-              <button className="btn sm" disabled={play} onClick={()=>nuovaFase(true)} title="Nuova fase: i giocatori si spostano sulla punta delle frecce, la palla segue passaggi e conduzioni">+ Fase</button>
-              <button className="btn ghost sm" disabled={play} onClick={()=>nuovaFase(false)} title="Copia identica della fase corrente">Duplica</button>
-              <span style={{flex:1}}></span>
-              <button className="btn ghost sm" disabled={play||fase===0} onClick={()=>spostaFase(-1)} title="Sposta a sinistra">◀</button>
-              <button className="btn ghost sm" disabled={play||fase===S.fasi.length-1} onClick={()=>spostaFase(1)} title="Sposta a destra">▶</button>
-              <button className="btn danger sm" disabled={play||S.fasi.length<2} onClick={eliminaFase}>Elimina fase</button>
-              <button className={"btn sm "+(play?"danger":"")} onClick={()=>setPlay(p=>!p)}>{play?"■ Stop":"▶ Anteprima"}</button>
+              <div className="sc-fasi-lista">
+                {S.fasi.map((x,i)=>(
+                  <button key={x.id} className={"sc-fase "+(i===fase?"on":"")} disabled={play} onClick={()=>{ setFase(i); setSel(null); }}>Fase {i+1}</button>
+                ))}
+                <button className="btn sm" disabled={play} onClick={()=>nuovaFase(true)} title="Nuova fase: i giocatori si spostano sulla punta delle frecce, la palla segue passaggi e conduzioni">+ Fase</button>
+                <button className="btn ghost sm" disabled={play} onClick={()=>nuovaFase(false)} title="Copia identica della fase corrente">Duplica</button>
+              </div>
+              <div className="sc-fasi-az">
+                <button className="btn ghost sm" disabled={play||fase===0} onClick={()=>spostaFase(-1)} title="Sposta a sinistra">◀</button>
+                <button className="btn ghost sm" disabled={play||fase===S.fasi.length-1} onClick={()=>spostaFase(1)} title="Sposta a destra">▶</button>
+                <button className="btn danger sm" disabled={play||S.fasi.length<2} onClick={eliminaFase}>Elimina<span className="lg"> fase</span></button>
+                <button className={"btn sm sc-play "+(play?"danger":"")} onClick={()=>setPlay(p=>!p)}>{play?"■ Stop":"▶ Anteprima"}</button>
+              </div>
             </div>
           </div>
         </div>
 
         <div className="grid" style={{alignContent:"start"}}>
           <div className="card">
-            <div className="card-h"><h3>{selObj?"Pedina":selFreccia?"Freccia":selTesto?"Testo":"Come funziona"}</h3>
+            <div className="card-h"><h3>{selObj?"Pedina":selFreccia?"Freccia":selTesto?"Testo":(stretto?"Modifica":"Come funziona")}</h3>
               {sel && <button className="btn danger sm" onClick={eliminaSel}>Elimina</button>}
             </div>
             <div className="card-b">
@@ -3622,13 +3699,14 @@ function EditorSchema({iniziale, membri, toast, onChiudi}){
                 <div className="hint">Puoi disegnarla a mano libera: la freccia segue il percorso del dito o del mouse. Trascina i pallini arancioni per ritoccare la curva, quelli bianchi per spostare inizio e punta. {selFreccia.da?"È agganciata a una pedina: segue i suoi spostamenti.":""}</div>
               </>}
               {selTesto && <Campo label="Testo"><input value={selTesto.testo} maxLength={40} onChange={e=>setTesto(e.target.value)} /></Campo>}
+              {!sel && stretto && <div className="hint" style={{marginTop:0}}>Tocca una pedina o una freccia per modificarla. Scegli lo strumento nella barra in alto (scorre di lato).</div>}
               {!sel && (
-                <ol className="sc-help">
+                <details open={!stretto} className="sc-det"><summary>{stretto?"Come funziona":""}</summary><ol className="sc-help">
                   <li>Scegli una pedina in alto e tocca il campo per aggiungerla.</li>
                   <li>Con le frecce trascina <b>partendo da una pedina</b>: la freccia resta agganciata e segue il percorso che disegni, anche curvo.</li>
                   <li>Premi <b>+ Fase</b>: i giocatori vanno sulla punta delle frecce e la palla segue passaggi, tiri e conduzioni.</li>
                   <li>Ripeti per ogni tempo dello schema, poi <b>▶ Anteprima</b> ed <b>Esporta</b>.</li>
-                </ol>
+                </ol></details>
               )}
             </div>
           </div>
@@ -3646,11 +3724,12 @@ function EditorSchema({iniziale, membri, toast, onChiudi}){
           <div className="card">
             <div className="card-h"><h3>Impostazioni</h3></div>
             <div className="card-b">
-              <div className="row g2">
+              <div className="row sc-imp">
                 <Campo label="Categoria"><select value={S.categoria} onChange={e=>setCampo("categoria",e.target.value)}>{CATEGORIE_SCHEMA.map(c=><option key={c}>{c}</option>)}</select></Campo>
                 <Campo label="Vista"><select value={S.vista} onChange={e=>setCampo("vista",e.target.value)}><option value="intero">Campo intero</option><option value="meta">Metà campo</option></select></Campo>
                 <Campo label="Campo"><select value={S.tema} onChange={e=>setCampo("tema",e.target.value)}>{Object.entries(TEMI_CAMPO).map(([k,v])=><option key={k} value={k}>{v.nome}</option>)}</select></Campo>
-                <Campo label="Velocità video"><select value={S.velocita} onChange={e=>setCampo("velocita",Number(e.target.value))}><option value={0.6}>Lenta</option><option value={1}>Normale</option><option value={1.5}>Veloce</option></select></Campo>
+                <Campo label="Velocità azione"><select value={S.velocita} onChange={e=>setCampo("velocita",Number(e.target.value))}>{VELOCITA_VIDEO.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></Campo>
+                <Campo label="Pause tra le fasi"><select value={S.pause==null?1:S.pause} onChange={e=>setCampo("pause",Number(e.target.value))}>{PAUSE_VIDEO.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></Campo>
                 <Campo label="Colore nostri"><input type="color" value={S.coloreCasa} onChange={e=>setCampo("coloreCasa",e.target.value)} style={{height:36,padding:3}} /></Campo>
                 <Campo label="Colore avversari"><input type="color" value={S.coloreOspite} onChange={e=>setCampo("coloreOspite",e.target.value)} style={{height:36,padding:3}} /></Campo>
               </div>
@@ -3660,7 +3739,7 @@ function EditorSchema({iniziale, membri, toast, onChiudi}){
         </div>
       </div>
 
-      {esporta && <EsportaSchema S={S} fase={fase} toast={toast} onChiudi={()=>setEsporta(false)} />}
+      {esporta && <EsportaSchema S={S} fase={fase} toast={toast} onCampo={setCampo} onChiudi={()=>setEsporta(false)} />}
     </div>
   );
 }
