@@ -191,6 +191,22 @@ tbody tr:hover{background:#FAFBFA}
 .gate{max-width:380px;margin:14vh auto;padding:0 16px}
 .hint{font-size:12px;color:var(--muted);margin-top:6px}
 .divider{height:1px;background:var(--line);margin:16px 0}
+/* schemi */
+.sc-tools{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.sc-tool{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:8px;padding:6px 10px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+.sc-tool:hover{border-color:var(--court)}
+.sc-tool.on{background:var(--court);border-color:var(--court);color:#fff}
+.sc-tool:disabled{opacity:.45;cursor:not-allowed}
+.sc-sep{width:1px;height:22px;background:var(--line);margin:0 4px}
+.sc-canvas{display:block;margin:0 auto;touch-action:none;user-select:none;-webkit-user-select:none;border-radius:8px}
+.sc-fasi{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px}
+.sc-fase{border:1px solid var(--line);background:#fff;border-radius:999px;padding:4px 12px;font-size:12px;font-weight:600;cursor:pointer;color:var(--ink)}
+.sc-fase.on{background:var(--mint-soft);border-color:var(--mint);color:#1D6E5A}
+.sc-layout{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:14px;align-items:start}
+@media(max-width:960px){.sc-layout{grid-template-columns:1fr}}
+.sc-help{margin:0;padding-left:18px;font-size:13px;color:var(--muted)}
+.sc-help li{margin-bottom:6px}
+.sc-card{overflow:hidden;box-shadow:none}
 @media (prefers-reduced-motion: no-preference){
   .tab,.btn{transition:all .14s ease}
 }
@@ -222,7 +238,8 @@ const COL = {
   competizioni:"fg_competizioni",
   tipiEvento:  "fg_tipi_evento",
   multe:       "fg_multe",
-  tipiMulta:   "fg_tipi_multa"
+  tipiMulta:   "fg_tipi_multa",
+  schemi:      "fg_schemi"
 };
 
 const CONFIGURATA = !FIREBASE_CONFIG.apiKey.startsWith("INSERISCI");
@@ -2599,6 +2616,1081 @@ function Multe({multe, tipiMulta, membri, toast}){
 /* ==================================================================
    11. DASHBOARD
    ================================================================== */
+/* ==================================================================
+   12. SCHEMI  —  lavagna tattica a fasi, animazione ed export foto/video
+   Coordinate in metri: campo 40 x 20, x=0 porta sinistra, x=40 porta destra.
+   ================================================================== */
+const CATEGORIE_SCHEMA = ["Angolo","Punizione","Rimessa laterale","Calcio d'inizio","Power play","Uscita dal pressing","Difesa","Altro"];
+const TEMI_CAMPO = {
+  verde:   {nome:"Verde",   fondo:"#22604A", campo:"#2E7D5B", striscia:"#328661", linee:"rgba(255,255,255,.92)", freccia:"#FFFFFF", tiro:"#FFD23F", testo:"#FFFFFF", ombra:"rgba(0,0,0,.5)",  bordo:"#FFFFFF", rete:"rgba(255,255,255,.22)"},
+  blu:     {nome:"Blu",     fondo:"#1D467F", campo:"#2A5DA8", striscia:"#2E64B2", linee:"rgba(255,255,255,.92)", freccia:"#FFFFFF", tiro:"#FFD23F", testo:"#FFFFFF", ombra:"rgba(0,0,0,.5)",  bordo:"#FFFFFF", rete:"rgba(255,255,255,.22)"},
+  parquet: {nome:"Parquet", fondo:"#8E6135", campo:"#D8A96E", striscia:"#D1A065", linee:"rgba(255,255,255,.95)", freccia:"#1A1A1A", tiro:"#B42318", testo:"#1A1A1A", ombra:"rgba(255,255,255,.65)", bordo:"#FFFFFF", rete:"rgba(255,255,255,.3)"},
+  lavagna: {nome:"Bianco (stampa)", fondo:"#E9EEEC", campo:"#FFFFFF", striscia:"#FFFFFF", linee:"#2A433E", freccia:"#1B2B28", tiro:"#C2410C", testo:"#1B2B28", ombra:"rgba(255,255,255,.85)", bordo:"#1B2B28", rete:"rgba(0,0,0,.06)"}
+};
+const TIPI_FRECCIA = {
+  corsa:      {nome:"Movimento",  simbolo:"→"},
+  passaggio:  {nome:"Passaggio",  simbolo:"⇢"},
+  conduzione: {nome:"Conduzione", simbolo:"∿"},
+  tiro:       {nome:"Tiro",       simbolo:"➔"}
+};
+const R_PEDINA = 0.62, R_PALLA = 0.32, R_CONO = 0.4, MARGINE = 1.6;
+
+/* Modelli di partenza: [tipo, portiere, etichetta, x, y] */
+const MODELLI_SCHEMA = {
+  vuoto:      {nome:"Campo vuoto", categoria:"Altro", vista:"intero", pezzi:[["palla",0,"",20,10]]},
+  angolo:     {nome:"Angolo", categoria:"Angolo", vista:"meta", pezzi:[
+    ["palla",0,"",39.75,0.25],["casa",0,"7",40.7,-0.7],["casa",0,"10",33.5,4.5],["casa",0,"9",35.5,11],["casa",0,"8",30,9],["casa",1,"P",6,10],
+    ["ospite",1,"",39.3,10],["ospite",0,"",37,4.8],["ospite",0,"",35.2,8.8],["ospite",0,"",36,13],["ospite",0,"",31.5,7]]},
+  punizione:  {nome:"Punizione dal limite", categoria:"Punizione", vista:"meta", pezzi:[
+    ["palla",0,"",30,11],["casa",0,"10",29.2,11.9],["casa",0,"7",29.4,9.9],["casa",0,"9",34.5,15.5],["casa",0,"8",26,6.5],["casa",1,"P",6,10],
+    ["ospite",1,"",39.3,10.2],["ospite",0,"",34.9,11.1],["ospite",0,"",35.05,9.9],["ospite",0,"",35.5,15],["ospite",0,"",31.5,6.2]]},
+  rimessa:    {nome:"Rimessa laterale", categoria:"Rimessa laterale", vista:"meta", pezzi:[
+    ["palla",0,"",32,0],["casa",0,"7",32,-0.75],["casa",0,"10",34.5,4],["casa",0,"9",37.5,9.5],["casa",0,"8",27.5,5.5],["casa",1,"P",6,10],
+    ["ospite",1,"",39.3,9.5],["ospite",0,"",33.2,2.2],["ospite",0,"",35.2,5.5],["ospite",0,"",37,11],["ospite",0,"",28.8,4.5]]},
+  inizio:     {nome:"Calcio d'inizio", categoria:"Calcio d'inizio", vista:"intero", pezzi:[
+    ["palla",0,"",20,10],["casa",0,"10",19.3,10.7],["casa",0,"7",16,4],["casa",0,"8",16,16],["casa",0,"9",12.5,10],["casa",1,"P",2,10],
+    ["ospite",1,"",38.3,10],["ospite",0,"",24,6],["ospite",0,"",24,14],["ospite",0,"",26.5,10],["ospite",0,"",31,10]]},
+  powerplay:  {nome:"Power play 5 contro 4", categoria:"Power play", vista:"intero", pezzi:[
+    ["palla",0,"",27.2,10.5],["casa",0,"4",26.5,10],["casa",0,"7",30.5,3.5],["casa",0,"8",30.5,16.5],["casa",0,"9",36.8,5.5],["casa",0,"10",36.8,14.5],
+    ["ospite",1,"",39.3,10],["ospite",0,"",31,7],["ospite",0,"",31,13],["ospite",0,"",35,8],["ospite",0,"",35,12]]}
+};
+
+const clona = o => JSON.parse(JSON.stringify(o));
+
+function creaDaModello(k){
+  const M = MODELLI_SCHEMA[k] || MODELLI_SCHEMA.vuoto;
+  const oggetti = [], pos = {};
+  M.pezzi.forEach(([tipo,gk,label,x,y])=>{ const id = uid(); oggetti.push({id,tipo,gk:!!gk,label,nome:""}); pos[id] = {x,y}; });
+  return {
+    nome:"", categoria:M.categoria, note:"", vista:M.vista, tema:"verde",
+    coloreCasa:"#1D4ED8", coloreOspite:"#DC2626", velocita:1,
+    oggetti, fasi:[{id:uid(), nota:"", pos, frecce:[], testi:[]}]
+  };
+}
+
+function normalizzaSchema(S){
+  const n = clona(S||{});
+  n.nome = n.nome||""; n.categoria = n.categoria||"Altro"; n.note = n.note||"";
+  n.vista = n.vista==="meta" ? "meta" : "intero";
+  n.tema = TEMI_CAMPO[n.tema] ? n.tema : "verde";
+  n.coloreCasa = n.coloreCasa||"#1D4ED8"; n.coloreOspite = n.coloreOspite||"#DC2626";
+  n.velocita = Number(n.velocita)||1;
+  n.oggetti = Array.isArray(n.oggetti) ? n.oggetti : [];
+  n.fasi = (Array.isArray(n.fasi) && n.fasi.length ? n.fasi : [{}]).map(F=>({
+    id:F.id||uid(), nota:F.nota||"", pos:F.pos||{}, frecce:Array.isArray(F.frecce)?F.frecce:[], testi:Array.isArray(F.testi)?F.testi:[]
+  }));
+  return n;
+}
+
+/* ---------- geometria vista ---------- */
+function vistaCampo(vista){
+  const M = MARGINE;
+  if(vista==="meta") return { // metà campo d'attacco, porta in alto
+    Wm:20+2*M, Hm:20+2*M,
+    map:(x,y)=>[y+M, 40-x+M],
+    unmap:(u,v)=>[40-(v-M), u-M],
+    mat:[0,-1,1,0,M,40+M]
+  };
+  return { Wm:40+2*M, Hm:20+2*M, map:(x,y)=>[x+M,y+M], unmap:(u,v)=>[u-M,v-M], mat:[1,0,0,1,M,M] };
+}
+function creaP(V,s,ox,oy){
+  return {V,s,ox,oy,toS:(x,y)=>{ const [u,v]=V.map(x,y); return [ox+u*s, oy+v*s]; }};
+}
+const easeIO = t => t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
+
+function ctrlFreccia(f){
+  const dx=f.x2-f.x1, dy=f.y2-f.y1, L=Math.hypot(dx,dy)||1;
+  const nx=-dy/L, ny=dx/L, b=f.b||0;
+  return {cx:(f.x1+f.x2)/2+nx*b, cy:(f.y1+f.y2)/2+ny*b, nx, ny};
+}
+function curvaFreccia(f){
+  const {cx,cy} = ctrlFreccia(f);
+  return t => { const u=1-t; return [u*u*f.x1+2*u*t*cx+t*t*f.x2, u*u*f.y1+2*u*t*cy+t*t*f.y2]; };
+}
+function dirFine(f){
+  const {cx,cy} = ctrlFreccia(f);
+  let dx=f.x2-cx, dy=f.y2-cy; const L=Math.hypot(dx,dy)||1; return [dx/L, dy/L];
+}
+function coloreTestoSu(hex){
+  let h=(hex||"#000").replace("#",""); if(h.length===3) h=h.split("").map(c=>c+c).join("");
+  const n=parseInt(h,16)||0; const r=(n>>16)&255, g=(n>>8)&255, b=n&255;
+  return (0.299*r+0.587*g+0.114*b) > 165 ? "#111111" : "#FFFFFF";
+}
+
+/* ---------- disegno ---------- */
+function disegnaCampo(ctx, tema, P){
+  const T = TEMI_CAMPO[tema]||TEMI_CAMPO.verde, {V,s,ox,oy} = P;
+  const [a,b,c,d,e,f] = V.mat;
+  ctx.save();
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.fillStyle = T.fondo; ctx.fillRect(ox,oy,V.Wm*s,V.Hm*s);
+  ctx.beginPath(); ctx.rect(ox,oy,V.Wm*s,V.Hm*s); ctx.clip();
+  ctx.setTransform(a*s,b*s,c*s,d*s, ox+e*s, oy+f*s);
+  ctx.fillStyle = T.campo; ctx.fillRect(0,0,40,20);
+  if(T.striscia!==T.campo){ ctx.fillStyle=T.striscia; for(let i=0;i<10;i+=2) ctx.fillRect(i*4,0,4,20); }
+  ctx.strokeStyle=T.linee; ctx.lineWidth=.09; ctx.lineJoin="round"; ctx.lineCap="round";
+  // porte (reti fuori dal campo)
+  [[0,-1],[40,1]].forEach(([gx,dir])=>{
+    ctx.fillStyle=T.rete; ctx.fillRect(Math.min(gx,gx+dir*.9),8.5,.9,3);
+    ctx.lineWidth=.12; ctx.strokeRect(Math.min(gx,gx+dir*.9),8.5,.9,3); ctx.lineWidth=.09;
+  });
+  ctx.strokeRect(0,0,40,20);
+  ctx.beginPath(); ctx.moveTo(20,0); ctx.lineTo(20,20); ctx.stroke();
+  ctx.beginPath(); ctx.arc(20,10,3,0,Math.PI*2); ctx.stroke();
+  const punto=(x,y)=>{ ctx.beginPath(); ctx.arc(x,y,.13,0,Math.PI*2); ctx.fillStyle=T.linee; ctx.fill(); };
+  punto(20,10);
+  // aree di rigore (archi di 6 m dai pali, raccordati da una linea)
+  ctx.beginPath(); ctx.arc(0,8.5,6,-Math.PI/2,0,false); ctx.lineTo(6,11.5); ctx.arc(0,11.5,6,0,Math.PI/2,false); ctx.stroke();
+  ctx.beginPath(); ctx.arc(40,8.5,6,-Math.PI/2,-Math.PI,true); ctx.lineTo(34,11.5); ctx.arc(40,11.5,6,Math.PI,Math.PI/2,true); ctx.stroke();
+  punto(6,10); punto(34,10); punto(10,10); punto(30,10);
+  // archi d'angolo
+  [[0,0,0],[40,0,Math.PI/2],[40,20,Math.PI],[0,20,Math.PI*1.5]].forEach(([x,y,a0])=>{ ctx.beginPath(); ctx.arc(x,y,.25,a0,a0+Math.PI/2); ctx.stroke(); });
+  // zone di sostituzione
+  [10,15,25,30].forEach(x=>{ ctx.beginPath(); ctx.moveTo(x,19.6); ctx.lineTo(x,20.4); ctx.stroke(); });
+  ctx.restore();
+}
+
+function disegnaFreccia(ctx, f, P, T, {t0=0, alpha=1}={}){
+  if(alpha<=0.01 || t0>=0.97) return;
+  const B=curvaFreccia(f), s=P.s;
+  const n = f.tipo==="conduzione" ? 160 : 40;
+  const pts=[];
+  for(let k=0;k<=n;k++){ const t=t0+(1-t0)*k/n; const [x,y]=B(t); pts.push(P.toS(x,y)); }
+  const cum=[0];
+  for(let k=1;k<pts.length;k++) cum.push(cum[k-1]+Math.hypot(pts[k][0]-pts[k-1][0], pts[k][1]-pts[k-1][1]));
+  const Ltot=cum[cum.length-1]; if(Ltot<2) return;
+  const head=Math.min((f.tipo==="tiro"?.82:.64)*s, Ltot*.6);
+  const tip=pts[pts.length-1];
+  let kb=pts.length-1; while(kb>0 && Ltot-cum[kb]<head) kb--;
+  const base=pts[kb];
+  let linea=pts.slice(0,kb+1);
+  if(f.tipo==="conduzione"){
+    const amp=.2*s, lam=.95*s;
+    linea=linea.map((p,k)=>{
+      if(k===0||k===linea.length-1) return p;
+      const a=linea[k-1], b=linea[k+1]; const dx=b[0]-a[0], dy=b[1]-a[1], L=Math.hypot(dx,dy)||1;
+      const smorza=Math.min(1,(cum[kb]-cum[k])/(lam*.6), cum[k]/(lam*.4));
+      const o=Math.sin(cum[k]/lam*2*Math.PI)*amp*smorza;
+      return [p[0]-dy/L*o, p[1]+dx/L*o];
+    });
+  }
+  const col = f.tipo==="tiro" ? T.tiro : T.freccia;
+  ctx.save();
+  ctx.globalAlpha=alpha; ctx.strokeStyle=col; ctx.fillStyle=col;
+  ctx.lineWidth=(f.tipo==="tiro"?.22:.14)*s; ctx.lineCap="round"; ctx.lineJoin="round";
+  if(f.tipo==="passaggio") ctx.setLineDash([.45*s,.3*s]);
+  ctx.beginPath(); linea.forEach((p,k)=>k?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])); ctx.stroke();
+  ctx.setLineDash([]);
+  const dx=tip[0]-base[0], dy=tip[1]-base[1], L=Math.hypot(dx,dy)||1, ux=dx/L, uy=dy/L, w=head*.52;
+  ctx.beginPath();
+  ctx.moveTo(tip[0],tip[1]);
+  ctx.lineTo(tip[0]-ux*head-uy*w, tip[1]-uy*head+ux*w);
+  ctx.lineTo(tip[0]-ux*head+uy*w, tip[1]-uy*head-ux*w);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function disegnaOggetto(ctx, o, x, y, P, S, T, sel){
+  const [px,py]=P.toS(x,y), s=P.s;
+  ctx.save();
+  if(o.tipo==="palla"){
+    const r=R_PALLA*s;
+    ctx.shadowColor="rgba(0,0,0,.35)"; ctx.shadowBlur=.2*s; ctx.shadowOffsetY=.06*s;
+    ctx.beginPath(); ctx.arc(px,py,r,0,Math.PI*2); ctx.fillStyle="#fff"; ctx.fill();
+    ctx.shadowColor="transparent";
+    ctx.lineWidth=.05*s; ctx.strokeStyle="#111"; ctx.stroke();
+    ctx.beginPath();
+    for(let k=0;k<5;k++){ const a=-Math.PI/2+k*2*Math.PI/5, rr=r*.42; const X=px+rr*Math.cos(a), Y=py+rr*Math.sin(a); k?ctx.lineTo(X,Y):ctx.moveTo(X,Y); }
+    ctx.closePath(); ctx.fillStyle="#111"; ctx.fill();
+  } else if(o.tipo==="cono"){
+    const h=.8*s, w=.66*s;
+    ctx.beginPath(); ctx.moveTo(px,py-h/2); ctx.lineTo(px+w/2,py+h/2); ctx.lineTo(px-w/2,py+h/2); ctx.closePath();
+    ctx.fillStyle="#F97316"; ctx.fill(); ctx.lineWidth=.05*s; ctx.strokeStyle="#fff"; ctx.stroke();
+  } else {
+    const col = o.tipo==="casa" ? (S.coloreCasa||"#1D4ED8") : (S.coloreOspite||"#DC2626");
+    const r=R_PEDINA*s;
+    ctx.shadowColor="rgba(0,0,0,.35)"; ctx.shadowBlur=.25*s; ctx.shadowOffsetY=.08*s;
+    ctx.beginPath(); ctx.arc(px,py,r,0,Math.PI*2); ctx.fillStyle=col; ctx.fill();
+    ctx.shadowColor="transparent";
+    ctx.lineWidth=.08*s; ctx.strokeStyle=T.bordo; ctx.stroke();
+    if(o.gk){ ctx.beginPath(); ctx.arc(px,py,r+.13*s,0,Math.PI*2); ctx.lineWidth=.15*s; ctx.strokeStyle="#FFD23F"; ctx.stroke(); }
+    const lab=String(o.label||"").slice(0,3);
+    if(lab){
+      const fs=(lab.length>=3?.46:lab.length===2?.6:.72)*s;
+      ctx.font=`800 ${fs}px Archivo, sans-serif`; ctx.fillStyle=coloreTestoSu(col);
+      ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(lab,px,py+fs*.06);
+    }
+    if(o.nome){
+      ctx.font=`700 ${.5*s}px Inter, sans-serif`; ctx.textAlign="center"; ctx.textBaseline="top";
+      ctx.lineJoin="round"; ctx.lineWidth=.18*s; ctx.strokeStyle=T.ombra; ctx.strokeText(o.nome,px,py+r+.22*s);
+      ctx.fillStyle=T.testo; ctx.fillText(o.nome,px,py+r+.22*s);
+    }
+  }
+  if(sel){
+    const r=(o.tipo==="palla"?R_PALLA:o.tipo==="cono"?R_CONO+.1:R_PEDINA)+.3;
+    ctx.beginPath(); ctx.arc(px,py,r*s,0,Math.PI*2);
+    ctx.setLineDash([.25*s,.18*s]); ctx.lineWidth=Math.max(2,.08*s); ctx.strokeStyle="#F59E0B"; ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function disegnaTesto(ctx, t, P, T, alpha, sel){
+  if(alpha<=0.01) return;
+  const [px,py]=P.toS(t.x,t.y), s=P.s;
+  ctx.save(); ctx.globalAlpha=alpha;
+  ctx.font=`800 ${.85*s}px Archivo, sans-serif`; ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.lineJoin="round"; ctx.lineWidth=.24*s; ctx.strokeStyle=T.ombra; ctx.strokeText(t.testo,px,py);
+  ctx.fillStyle=T.testo; ctx.fillText(t.testo,px,py);
+  if(sel){
+    const w=ctx.measureText(t.testo).width;
+    ctx.setLineDash([.25*s,.18*s]); ctx.lineWidth=Math.max(2,.07*s); ctx.strokeStyle="#F59E0B";
+    ctx.strokeRect(px-w/2-.25*s, py-.6*s, w+.5*s, 1.2*s);
+  }
+  ctx.restore();
+}
+
+function disegnaManiglie(ctx, f, P){
+  const m=curvaFreccia(f)(.5), r=Math.max(5,.3*P.s);
+  [[f.x1,f.y1,"#FFFFFF"],[f.x2,f.y2,"#FFFFFF"],[m[0],m[1],"#F59E0B"]].forEach(([x,y,c])=>{
+    const [px,py]=P.toS(x,y);
+    ctx.beginPath(); ctx.arc(px,py,r,0,Math.PI*2); ctx.fillStyle=c; ctx.fill();
+    ctx.lineWidth=Math.max(1.5,.07*P.s); ctx.strokeStyle="#B45309"; ctx.stroke();
+  });
+}
+
+/* Chi si muove tra la fase i e la i+1, e lungo quale freccia */
+function movimentiFase(S, i){
+  const F=S.fasi[i], G=S.fasi[i+1]; if(!F||!G) return {};
+  const res={};
+  S.oggetti.forEach(o=>{
+    const a=F.pos[o.id], b=G.pos[o.id];
+    if(!a||!b||Math.hypot(a.x-b.x,a.y-b.y)<0.05) return;
+    let best=null, bd=1.3;
+    (F.frecce||[]).forEach(f=>{
+      const legata = f.da===o.id
+        || (o.tipo==="palla" && f.tipo!=="corsa" && Math.hypot(f.x1-a.x,f.y1-a.y)<1.6)
+        || (!f.da && o.tipo!=="palla" && Math.hypot(f.x1-a.x,f.y1-a.y)<0.8);
+      if(!legata) return;
+      const d=Math.hypot(f.x2-b.x,f.y2-b.y); if(d<bd){ bd=d; best=f; }
+    });
+    if(best) res[o.id]={f:best};
+  });
+  return res;
+}
+function posizioniAl(S, i, prog, mov){
+  const A=S.fasi[i].pos, B=(S.fasi[i+1]||S.fasi[i]).pos, e=easeIO(prog), out={};
+  S.oggetti.forEach(o=>{
+    const a=A[o.id], b=B[o.id];
+    if(!a||!b){ out[o.id]=a||b; return; }
+    const m=mov[o.id];
+    if(m){
+      const f=m.f, [bx,by]=curvaFreccia(f)(e);
+      out[o.id]={x:bx+(a.x-f.x1)*(1-e)+(b.x-f.x2)*e, y:by+(a.y-f.y1)*(1-e)+(b.y-f.y2)*e};
+    } else out[o.id]={x:a.x+(b.x-a.x)*e, y:a.y+(b.y-a.y)*e};
+  });
+  return out;
+}
+
+/* stato = {fase, prog: null | 0..1 (transizione verso fase+1), alphaFrecce} */
+function disegnaScena(ctx, S, P, stato, extra={}){
+  const T=TEMI_CAMPO[S.tema]||TEMI_CAMPO.verde;
+  const i=Math.max(0,Math.min(stato.fase, S.fasi.length-1)), F=S.fasi[i];
+  const {V,s,ox,oy}=P;
+  disegnaCampo(ctx,S.tema,P);
+  ctx.save(); ctx.setTransform(1,0,0,1,0,0);
+  ctx.beginPath(); ctx.rect(ox,oy,V.Wm*s,V.Hm*s); ctx.clip();
+  const inMoto = stato.prog!=null && !!S.fasi[i+1];
+  const mov = inMoto ? movimentiFase(S,i) : {};
+  const pos = inMoto ? posizioniAl(S,i,stato.prog,mov) : F.pos;
+  const e = inMoto ? easeIO(stato.prog) : 0;
+  const usate = new Set(Object.values(mov).map(m=>m.f.id));
+  const aF = inMoto ? 1-stato.prog : (stato.alphaFrecce==null ? 1 : stato.alphaFrecce);
+  const stacco = f => { const L=Math.hypot(f.x2-f.x1,f.y2-f.y1)||1; return f.da ? Math.min(.45,(R_PEDINA+.12)/L) : 0; };
+  (F.frecce||[]).forEach(f=>{
+    if(inMoto && usate.has(f.id)) disegnaFreccia(ctx,f,P,T,{t0:Math.min(.97,e+stacco(f)*(1-e)), alpha:1});
+    else disegnaFreccia(ctx,f,P,T,{t0:stacco(f), alpha:aF});
+  });
+  if(extra.temp) disegnaFreccia(ctx,extra.temp,P,T,{t0:stacco(extra.temp), alpha:.85});
+  const ordine={cono:0,ospite:1,casa:2,palla:3};
+  [...S.oggetti].sort((a,b)=>(ordine[a.tipo]||0)-(ordine[b.tipo]||0)).forEach(o=>{
+    const q=pos[o.id]; if(!q) return;
+    disegnaOggetto(ctx,o,q.x,q.y,P,S,T, extra.sel && extra.sel.k==="obj" && extra.sel.id===o.id);
+  });
+  (F.testi||[]).forEach(t=>disegnaTesto(ctx,t,P,T,aF, extra.sel && extra.sel.k==="testo" && extra.sel.id===t.id));
+  if(extra.sel && extra.sel.k==="freccia"){ const f=(F.frecce||[]).find(x=>x.id===extra.sel.id); if(f) disegnaManiglie(ctx,f,P); }
+  ctx.restore();
+}
+
+/* Sequenza temporale dell'animazione (secondi) */
+function timelineSchema(S){
+  const vel=Number(S.velocita)||1, N=S.fasi.length, seg=[];
+  for(let i=0;i<N;i++){
+    seg.push({tipo:"hold", fase:i, dur:(i===N-1 ? 2.4 : i===0 ? 1.4 : 0.9)/vel});
+    if(i<N-1) seg.push({tipo:"move", fase:i, dur:1.6/vel});
+  }
+  const tot=seg.reduce((a,x)=>a+x.dur,0);
+  return {tot, at(t){
+    let acc=0;
+    for(const x of seg){
+      if(t<acc+x.dur){
+        const p=(t-acc)/x.dur;
+        return x.tipo==="hold"
+          ? {fase:x.fase, prog:null, alphaFrecce: x.fase===0 ? 1 : Math.min(1,(t-acc)/0.35)}
+          : {fase:x.fase, prog:p};
+      }
+      acc+=x.dur;
+    }
+    return {fase:N-1, prog:null, alphaFrecce:1};
+  }};
+}
+
+/* ---------- export: fotogramma con intestazione e nota ---------- */
+const EXP = {pad:28, head:96, foot:88};
+function layoutExport(S){
+  const V=vistaCampo(S.vista), W=S.vista==="meta"?1080:1280;
+  const s=(W-2*EXP.pad)/V.Wm, fh=V.Hm*s;
+  let H=Math.ceil(EXP.head+fh+EXP.foot); if(H%2) H++;
+  return {V,W,H,s,ox:EXP.pad,oy:EXP.head,fh};
+}
+function testoAdattato(ctx, testo, x, y, maxW){
+  let t=testo; while(t.length>1 && ctx.measureText(t).width>maxW) t=t.slice(0,-2)+"…";
+  ctx.fillText(t,x,y);
+}
+function righeTesto(ctx, testo, maxW, maxRighe){
+  const parole=String(testo||"").split(/\s+/).filter(Boolean), righe=[]; let cur="";
+  parole.forEach(p=>{ const prova=cur?cur+" "+p:p; if(ctx.measureText(prova).width>maxW && cur){ righe.push(cur); cur=p; } else cur=prova; });
+  if(cur) righe.push(cur);
+  if(righe.length>maxRighe){ const r=righe.slice(0,maxRighe); r[maxRighe-1]=r[maxRighe-1].replace(/.{0,2}$/,"")+"…"; return r; }
+  return righe;
+}
+function disegnaFrame(ctx, S, L, stato){
+  const {W,H,V,s,ox,oy,fh}=L, pad=EXP.pad, N=S.fasi.length;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.fillStyle="#0F3D3A"; ctx.fillRect(0,0,W,H);
+  // intestazione
+  ctx.textBaseline="alphabetic"; ctx.textAlign="left";
+  ctx.fillStyle="#7FD1B9"; ctx.font="700 16px Inter, sans-serif";
+  ctx.fillText(((S.categoria||"Schema")+"  ·  A.S.D. "+SQUADRA).toUpperCase(), pad, 38);
+  ctx.fillStyle="#FFFFFF"; ctx.font="800 36px Archivo, sans-serif";
+  testoAdattato(ctx, S.nome||"Schema", pad, 78, W-2*pad-180);
+  ctx.textAlign="right";
+  ctx.fillStyle="rgba(255,255,255,.6)"; ctx.font="700 15px Inter, sans-serif"; ctx.fillText("FASE", W-pad, 38);
+  ctx.fillStyle="#FFFFFF"; ctx.font="800 36px Archivo, sans-serif"; ctx.fillText(`${Math.min(stato.fase+1,N)}/${N}`, W-pad, 78);
+  // campo con angoli arrotondati
+  ctx.save();
+  const r=12; ctx.beginPath();
+  ctx.moveTo(ox+r,oy); ctx.arcTo(ox+V.Wm*s,oy,ox+V.Wm*s,oy+fh,r); ctx.arcTo(ox+V.Wm*s,oy+fh,ox,oy+fh,r);
+  ctx.arcTo(ox,oy+fh,ox,oy,r); ctx.arcTo(ox,oy,ox+V.Wm*s,oy,r); ctx.closePath(); ctx.clip();
+  disegnaScena(ctx, S, creaP(V,s,ox,oy), stato);
+  ctx.restore();
+  // nota della fase
+  const nota=((S.fasi[Math.min(stato.fase,N-1)]||{}).nota||"").trim();
+  if(nota){
+    ctx.setTransform(1,0,0,1,0,0); ctx.textAlign="left"; ctx.textBaseline="alphabetic";
+    ctx.fillStyle="#FFFFFF"; ctx.font="500 22px Inter, sans-serif";
+    righeTesto(ctx, nota, W-2*pad, 2).forEach((riga,k)=>ctx.fillText(riga, pad, oy+fh+38+k*30));
+  }
+}
+async function preparaFont(){
+  try{ await Promise.all([document.fonts.load("800 36px Archivo"), document.fonts.load("700 16px Inter"), document.fonts.load("500 22px Inter")]); }catch(e){}
+}
+const nomeFileSchema = S => ("Schema_"+(S.nome||"senza_nome")).replace(/[^\w\-àèéìòù]+/gi,"_");
+const canvasABlob = (c,tipo,q) => new Promise(r=>c.toBlob(r,tipo,q));
+function scaricaBlob(blob, nome){
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=nome;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+}
+function frameCanvas(S, stato){
+  const L=layoutExport(S), c=document.createElement("canvas");
+  c.width=L.W; c.height=L.H; disegnaFrame(c.getContext("2d"),S,L,stato); return c;
+}
+async function fotoFase(S, i){
+  await preparaFont();
+  return canvasABlob(frameCanvas(S,{fase:i,prog:null,alphaFrecce:1}),"image/png");
+}
+async function fotoTutteFasi(S){
+  await preparaFont();
+  const frames=S.fasi.map((_,i)=>frameCanvas(S,{fase:i,prog:null,alphaFrecce:1}));
+  const W=frames[0].width, Htot=frames.reduce((a,c)=>a+c.height,0);
+  const k=Math.min(1, Math.sqrt(16e6/(W*Htot)));
+  const out=document.createElement("canvas"); out.width=Math.round(W*k); out.height=Math.round(Htot*k);
+  const ctx=out.getContext("2d"); let y=0;
+  frames.forEach(c=>{ ctx.drawImage(c,0,y,c.width*k,c.height*k); y+=c.height*k; });
+  return canvasABlob(out,"image/png");
+}
+async function pdfSchema(S){
+  if(!window.jspdf || !window.jspdf.jsPDF){ alert("Libreria PDF non ancora caricata. Riprova tra un istante."); return; }
+  await preparaFont();
+  const { jsPDF } = window.jspdf;
+  const doc=new jsPDF({orientation:"portrait", unit:"mm", format:"a4"});
+  const M=12, larg=210-2*M, altPag=297;
+  let y=M;
+  S.fasi.forEach((_,i)=>{
+    const c=frameCanvas(S,{fase:i,prog:null,alphaFrecce:1});
+    const h=larg*c.height/c.width;
+    if(y+h>altPag-M && y>M){ doc.addPage(); y=M; }
+    doc.addImage(c.toDataURL("image/jpeg",.92),"JPEG",M,y,larg,h);
+    y+=h+6;
+  });
+  if((S.note||"").trim()){
+    doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(14,26,24);
+    const linee=doc.splitTextToSize("Note: "+S.note.trim(), larg);
+    if(y+linee.length*5>altPag-M){ doc.addPage(); y=M; }
+    doc.text(linee, M, y+4);
+  }
+  doc.save(nomeFileSchema(S)+".pdf");
+}
+function mimeVideo(){
+  if(!window.MediaRecorder) return null;
+  const c=["video/mp4;codecs=avc1.42E01E","video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm;codecs=vp8","video/webm"];
+  return c.find(m=>{ try{ return MediaRecorder.isTypeSupported(m); }catch(e){ return false; } }) || null;
+}
+const erroreSchemi = e => (e && e.code==="permission-denied")
+  ? "Permesso negato da Firebase: aggiungi fg_schemi alle regole di Firestore"
+  : "Errore nel salvataggio: " + ((e && e.message) || e);
+
+/* ---------- modale di esportazione ---------- */
+function EsportaSchema({S, fase, onChiudi, toast}){
+  const [busy,setBusy] = useState(null);
+  const [prog,setProg] = useState(0);
+  const [ris,setRis] = useState(null);
+  const cvRef = React.useRef(null);
+  const vivo = React.useRef(true);
+  useEffect(()=>()=>{ vivo.current=false; },[]);
+  useEffect(()=>()=>{ if(ris) URL.revokeObjectURL(ris.url); },[ris]);
+
+  const mostra = (blob, tipo, nome) => setRis({blob, tipo, nome, url:URL.createObjectURL(blob)});
+
+  const foto = async tutte => {
+    setBusy("foto"); setRis(null);
+    try{
+      const b = tutte ? await fotoTutteFasi(S) : await fotoFase(S, fase);
+      mostra(b, "img", nomeFileSchema(S)+(tutte?"_tutte_le_fasi":"_fase_"+(fase+1))+".png");
+    }catch(e){ console.error(e); toast("Esportazione non riuscita"); }
+    setBusy(null);
+  };
+  const pdf = async () => { setBusy("pdf"); try{ await pdfSchema(S); }catch(e){ console.error(e); toast("PDF non riuscito"); } setBusy(null); };
+
+  const video = async () => {
+    const mime = mimeVideo();
+    const c = cvRef.current;
+    if(!mime || !c || !c.captureStream){ toast("Questo browser non registra video: usa Chrome, Edge o Safari aggiornati"); return; }
+    if(S.fasi.length<2) toast("Con una sola fase il video è un'immagine ferma: aggiungi almeno una fase");
+    setRis(null); setBusy("video"); setProg(0);
+    await preparaFont();
+    const L=layoutExport(S); c.width=L.W; c.height=L.H;
+    const ctx=c.getContext("2d"), TL=timelineSchema(S);
+    disegnaFrame(ctx,S,L,TL.at(0));
+    let rec, stream;
+    try{
+      stream=c.captureStream(30);
+      rec=new MediaRecorder(stream,{mimeType:mime, videoBitsPerSecond:8000000});
+    }catch(e){ console.error(e); toast("Registrazione non disponibile su questo browser"); setBusy(null); return; }
+    const pezzi=[]; rec.ondataavailable=e=>{ if(e.data && e.data.size) pezzi.push(e.data); };
+    const fine=new Promise(r=>{ rec.onstop=r; });
+    rec.start(200);
+    const t0=performance.now(); let ultimo=-1;
+    await new Promise(res=>{
+      const passo=()=>{
+        const t=(performance.now()-t0)/1000;
+        disegnaFrame(ctx,S,L,TL.at(Math.min(t,TL.tot)));
+        const p=Math.min(1,t/TL.tot), pr=Math.round(p*100);
+        if(pr!==ultimo && vivo.current){ ultimo=pr; setProg(p); }
+        if(t<TL.tot+0.4 && vivo.current) requestAnimationFrame(passo); else res();
+      };
+      requestAnimationFrame(passo);
+    });
+    rec.stop(); await fine; stream.getTracks().forEach(t=>t.stop());
+    if(!vivo.current) return;
+    const tipo=mime.split(";")[0], est=tipo.includes("mp4")?"mp4":"webm";
+    mostra(new Blob(pezzi,{type:tipo}), "video", nomeFileSchema(S)+"."+est);
+    setBusy(null);
+  };
+
+  const puoCondividere = ris && navigator.canShare && (()=>{ try{ return navigator.canShare({files:[new File([ris.blob], ris.nome, {type:ris.blob.type})]}); }catch(e){ return false; } })();
+  const condividi = async () => {
+    try{ await navigator.share({files:[new File([ris.blob], ris.nome, {type:ris.blob.type})], title:S.nome||"Schema"}); }
+    catch(e){ if(e && e.name!=="AbortError") toast("Condivisione non riuscita: scarica il file e invialo a mano"); }
+  };
+
+  return (
+    <Modale titolo="Esporta schema" onChiudi={()=>{ if(busy!=="video") onChiudi(); }} larghezza={760}>
+      <div className="grid g2" style={{marginBottom:12}}>
+        <button className="btn ghost" disabled={!!busy} onClick={()=>foto(false)}>Foto fase {fase+1} (PNG)</button>
+        <button className="btn ghost" disabled={!!busy} onClick={()=>foto(true)}>Foto con tutte le fasi (PNG)</button>
+        <button className="btn ghost" disabled={!!busy} onClick={pdf}>PDF con tutte le fasi</button>
+        <button className="btn" disabled={!!busy} onClick={video}>Video dell'animazione</button>
+      </div>
+      <div className="hint" style={{marginBottom:12}}>
+        Il video riproduce le {S.fasi.length} fasi in sequenza ({timelineSchema(S).tot.toFixed(0)} secondi circa, velocità dalle impostazioni).
+        Durante la registrazione tieni questa finestra aperta e in primo piano.
+      </div>
+      <canvas ref={cvRef} style={{width:"100%", borderRadius:8, display: busy==="video" ? "block" : "none"}} />
+      {busy==="video" && (
+        <div style={{marginTop:10}}>
+          <div className="bar"><i style={{width:Math.round(prog*100)+"%"}}></i></div>
+          <div className="hint">Registrazione in corso… {Math.round(prog*100)}%</div>
+        </div>
+      )}
+      {busy && busy!=="video" && <div className="hint">Preparazione in corso…</div>}
+      {ris && (
+        <div>
+          {ris.tipo==="img"
+            ? <img src={ris.url} alt="Anteprima schema" style={{width:"100%",borderRadius:8,border:"1px solid var(--line)"}} />
+            : <video src={ris.url} controls autoPlay loop muted playsInline style={{width:"100%",borderRadius:8,background:"#000"}} />}
+          <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap",alignItems:"center"}}>
+            <button className="btn" onClick={()=>scaricaBlob(ris.blob, ris.nome)}>Scarica</button>
+            {puoCondividere && <button className="btn ghost" onClick={condividi}>Condividi…</button>}
+            <span className="hint" style={{margin:0}}>{ris.nome} · {(ris.blob.size/1024/1024).toFixed(1)} MB</span>
+          </div>
+          {ris.tipo==="video" && ris.nome.endsWith(".webm") && (
+            <div className="hint">Il browser ha prodotto un WebM: se WhatsApp non lo accetta, registra da Safari o da Chrome aggiornato (che salvano in MP4).</div>
+          )}
+        </div>
+      )}
+    </Modale>
+  );
+}
+
+/* ---------- editor ---------- */
+const STRUMENTI_PEDINE = [
+  ["casa","Nostro"],["gkCasa","Nostro portiere"],["ospite","Avversario"],["gkOspite","Portiere avv."],["palla","Palla"],["cono","Cono"]
+];
+
+function IconaStrumento({k, S}){
+  const st={width:12,height:12,borderRadius:"50%",display:"inline-block",flex:"none"};
+  if(k==="casa"||k==="gkCasa") return <i style={{...st,background:S.coloreCasa,boxShadow:k==="gkCasa"?"0 0 0 2px #FFD23F":"none"}}></i>;
+  if(k==="ospite"||k==="gkOspite") return <i style={{...st,background:S.coloreOspite,boxShadow:k==="gkOspite"?"0 0 0 2px #FFD23F":"none"}}></i>;
+  if(k==="palla") return <i style={{...st,background:"#fff",border:"2px solid #111"}}></i>;
+  if(k==="cono") return <i style={{width:0,height:0,borderLeft:"6px solid transparent",borderRight:"6px solid transparent",borderBottom:"11px solid #F97316",display:"inline-block"}}></i>;
+  return null;
+}
+
+function EditorSchema({iniziale, membri, toast, onChiudi}){
+  const [S,setS] = useState(()=>normalizzaSchema(iniziale));
+  const sRef = React.useRef(S);
+  const storia = React.useRef([]);
+  const drag = React.useRef(null);
+  const cvRef = React.useRef(null);
+  const wrapRef = React.useRef(null);
+  const [fase,setFase] = useState(0);
+  const [sel,setSel] = useState(null);
+  const [tool,setTool] = useState("sposta");
+  const [temp,setTemp] = useState(null);
+  const [play,setPlay] = useState(false);
+  const [dirty,setDirty] = useState(false);
+  const [esporta,setEsporta] = useState(false);
+  const [larg,setLarg] = useState(800);
+  const [salvando,setSalvando] = useState(false);
+
+  const V = useMemo(()=>vistaCampo(S.vista),[S.vista]);
+  const F = S.fasi[Math.min(fase,S.fasi.length-1)];
+  const dpr = Math.min(2.5, window.devicePixelRatio||1);
+  const cssW = Math.max(260, Math.min(larg, S.vista==="meta" ? 640 : 1100));
+  const cssH = Math.round(cssW*V.Hm/V.Wm);
+
+  useEffect(()=>{
+    const el=wrapRef.current; if(!el || !window.ResizeObserver) return;
+    const ro=new ResizeObserver(en=>setLarg(Math.floor(en[0].contentRect.width)));
+    ro.observe(el); return ()=>ro.disconnect();
+  },[]);
+  useEffect(()=>{
+    if(!dirty) return;
+    const h=e=>{ e.preventDefault(); e.returnValue=""; };
+    window.addEventListener("beforeunload",h); return ()=>window.removeEventListener("beforeunload",h);
+  },[dirty]);
+  const [,setFontPronti] = useState(0);
+  useEffect(()=>{ preparaFont().then(()=>setFontPronti(1)); },[]);
+
+  const mut = (fn, conStoria=true) => {
+    const prev=sRef.current;
+    if(conStoria){ storia.current.push(JSON.stringify(prev)); if(storia.current.length>80) storia.current.shift(); }
+    const n=clona(prev); fn(n); sRef.current=n; setS(n); setDirty(true);
+  };
+  const annulla = () => {
+    const x=storia.current.pop(); if(!x) return;
+    const n=JSON.parse(x); sRef.current=n; setS(n); setSel(null); setDirty(true);
+    setFase(f=>Math.min(f,n.fasi.length-1));
+  };
+  const setCampo = (k,v) => mut(n=>{ n[k]=v; }, false);
+
+  const getP = () => { const cv=cvRef.current; return creaP(V, cv.width/V.Wm, 0, 0); };
+
+  // disegno statico
+  useEffect(()=>{
+    const cv=cvRef.current; if(!cv || play) return;
+    const W=Math.round(cssW*dpr), H=Math.round(cssH*dpr);
+    if(cv.width!==W) cv.width=W; if(cv.height!==H) cv.height=H;
+    const ctx=cv.getContext("2d"); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,W,H);
+    disegnaScena(ctx, S, getP(), {fase, prog:null, alphaFrecce:1}, {sel, temp});
+  });
+  // anteprima animata
+  useEffect(()=>{
+    if(!play) return;
+    const TL=timelineSchema(sRef.current), t0=performance.now(); let raf;
+    const passo=()=>{
+      const cv=cvRef.current; if(!cv) return;
+      const t=(performance.now()-t0)/1000, ctx=cv.getContext("2d");
+      ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,cv.width,cv.height);
+      disegnaScena(ctx, sRef.current, getP(), TL.at(Math.min(t,TL.tot)));
+      if(t<TL.tot) raf=requestAnimationFrame(passo); else setPlay(false);
+    };
+    raf=requestAnimationFrame(passo);
+    return ()=>cancelAnimationFrame(raf);
+  },[play]);
+
+  // coordinate
+  const aMondo = e => {
+    const cv=cvRef.current, r=cv.getBoundingClientRect(), P=getP();
+    let u=(e.clientX-r.left)*cv.width/r.width/P.s, v=(e.clientY-r.top)*cv.height/r.height/P.s;
+    u=Math.max(.3,Math.min(V.Wm-.3,u)); v=Math.max(.3,Math.min(V.Hm-.3,v));
+    const [x,y]=V.unmap(u,v); return {x:Math.round(x*100)/100, y:Math.round(y*100)/100};
+  };
+  const tolleranza = e => (e.pointerType==="touch" ? 18 : 8) * dpr / getP().s;
+
+  const colpisciOggetto = (Sx, p, tol, escludi) => {
+    const Fx=Sx.fasi[fase], ordine={palla:0,casa:1,ospite:2,cono:3};
+    let best=null, bd=1e9;
+    [...Sx.oggetti].sort((a,b)=>(ordine[a.tipo]||0)-(ordine[b.tipo]||0)).forEach(o=>{
+      if(o.id===escludi) return;
+      const q=Fx.pos[o.id]; if(!q) return;
+      const r=o.tipo==="palla"?R_PALLA:o.tipo==="cono"?R_CONO:R_PEDINA;
+      const d=Math.hypot(q.x-p.x,q.y-p.y);
+      if(d<r+tol && d<bd){ bd=d; best=o.id; }
+    });
+    return best;
+  };
+  const colpisci = (Sx, p, tol) => {
+    const Fx=Sx.fasi[fase];
+    const t=[...(Fx.testi||[])].reverse().find(t=>Math.abs(p.x-t.x)<Math.max(1,t.testo.length*.25)+tol && Math.abs(p.y-t.y)<.6+tol);
+    if(t) return {k:"testo", id:t.id};
+    const o=colpisciOggetto(Sx,p,tol); if(o) return {k:"obj", id:o};
+    let best=null, bd=tol+.25;
+    (Fx.frecce||[]).forEach(f=>{
+      const B=curvaFreccia(f); let prev=B(0);
+      for(let k=1;k<=24;k++){
+        const cur=B(k/24), dx=cur[0]-prev[0], dy=cur[1]-prev[1], L2=dx*dx+dy*dy||1;
+        const tt=Math.max(0,Math.min(1,((p.x-prev[0])*dx+(p.y-prev[1])*dy)/L2));
+        const d=Math.hypot(p.x-(prev[0]+tt*dx), p.y-(prev[1]+tt*dy));
+        if(d<bd){ bd=d; best=f.id; }
+        prev=cur;
+      }
+    });
+    return best ? {k:"freccia", id:best} : null;
+  };
+
+  const prossimoNumero = () => {
+    const usati=new Set(sRef.current.oggetti.filter(o=>o.tipo==="casa").map(o=>String(o.label)));
+    for(let k=2;k<100;k++) if(!usati.has(String(k))) return String(k);
+    return "";
+  };
+  const aggiungiOggetto = (t, p) => {
+    const tipo = t==="gkCasa"?"casa":t==="gkOspite"?"ospite":t;
+    const gk = t==="gkCasa"||t==="gkOspite";
+    const label = tipo==="casa" ? (gk?"P":prossimoNumero()) : "";
+    const o={id:uid(), tipo, gk, label, nome:""};
+    mut(n=>{ n.oggetti.push(o); n.fasi.forEach(Fx=>{ Fx.pos[o.id]={x:p.x,y:p.y}; }); });
+    setSel({k:"obj", id:o.id});
+  };
+
+  const onDown = e => {
+    if(play) return;
+    const cv=cvRef.current; try{ cv.setPointerCapture(e.pointerId); }catch(_){}
+    const p=aMondo(e), tol=tolleranza(e), S0=sRef.current, F0=S0.fasi[fase], snap=JSON.stringify(S0);
+    if(tool==="sposta"){
+      if(sel && sel.k==="freccia"){
+        const f=F0.frecce.find(x=>x.id===sel.id);
+        if(f){
+          const m=curvaFreccia(f)(.5);
+          for(const [h,x,y] of [["mid",m[0],m[1]],["end",f.x2,f.y2],["start",f.x1,f.y1]])
+            if(Math.hypot(p.x-x,p.y-y)<tol+.3){ drag.current={mode:"fh",h,id:f.id,snap}; return; }
+        }
+      }
+      const hit=colpisci(S0,p,tol);
+      if(!hit){ setSel(null); return; }
+      setSel(hit);
+      if(hit.k==="obj"){ const q=F0.pos[hit.id]; drag.current={mode:"obj",id:hit.id,dx:p.x-q.x,dy:p.y-q.y,snap}; }
+      else if(hit.k==="testo"){ const t=F0.testi.find(x=>x.id===hit.id); drag.current={mode:"testo",id:hit.id,dx:p.x-t.x,dy:p.y-t.y,snap}; }
+      else drag.current={mode:"freccia",id:hit.id,p0:p,orig:{...F0.frecce.find(x=>x.id===hit.id)},snap};
+      return;
+    }
+    if(STRUMENTI_PEDINE.some(([k])=>k===tool)){ aggiungiOggetto(tool,p); return; }
+    if(TIPI_FRECCIA[tool]){
+      const da=colpisciOggetto(S0,p,tol);
+      const st=da ? F0.pos[da] : p;
+      const t={id:uid(), tipo:tool, x1:st.x, y1:st.y, x2:p.x, y2:p.y, b:0, da:da||null};
+      drag.current={mode:"nuova", temp:t}; setTemp(t);
+      return;
+    }
+    if(tool==="testo"){
+      const testo=prompt("Testo da mostrare sul campo (es. BLOCCO, 1ª opzione)");
+      if(testo && testo.trim()){ const t={id:uid(), testo:testo.trim().slice(0,40), x:p.x, y:p.y}; mut(n=>{ n.fasi[fase].testi.push(t); }); setSel({k:"testo",id:t.id}); }
+    }
+  };
+  const onMove = e => {
+    const d=drag.current; if(!d) return;
+    const p=aMondo(e);
+    if(d.mode==="nuova"){ d.temp={...d.temp, x2:p.x, y2:p.y}; setTemp(d.temp); return; }
+    if(!d.mosso){ d.mosso=true; storia.current.push(d.snap); }
+    mut(n=>{
+      const Fx=n.fasi[fase];
+      if(d.mode==="obj"){
+        const x=p.x-d.dx, y=p.y-d.dy; Fx.pos[d.id]={x,y};
+        Fx.frecce.forEach(f=>{ if(f.da===d.id){ f.x1=x; f.y1=y; } });
+      } else if(d.mode==="testo"){
+        const t=Fx.testi.find(x=>x.id===d.id); if(t){ t.x=p.x-d.dx; t.y=p.y-d.dy; }
+      } else if(d.mode==="freccia"){
+        const f=Fx.frecce.find(x=>x.id===d.id); if(!f) return;
+        const dx=p.x-d.p0.x, dy=p.y-d.p0.y;
+        f.x2=d.orig.x2+dx; f.y2=d.orig.y2+dy;
+        if(!f.da){ f.x1=d.orig.x1+dx; f.y1=d.orig.y1+dy; }
+      } else if(d.mode==="fh"){
+        const f=Fx.frecce.find(x=>x.id===d.id); if(!f) return;
+        if(d.h==="start"){ f.x1=p.x; f.y1=p.y; f.da=null; }
+        else if(d.h==="end"){ f.x2=p.x; f.y2=p.y; }
+        else { const {nx,ny}=ctrlFreccia(f); const mx=(f.x1+f.x2)/2, my=(f.y1+f.y2)/2; f.b=Math.round(2*((p.x-mx)*nx+(p.y-my)*ny)*100)/100; }
+      }
+    }, false);
+  };
+  const onUp = e => {
+    const d=drag.current; drag.current=null; if(!d) return;
+    if(d.mode==="nuova"){
+      setTemp(null);
+      const f=d.temp;
+      if(Math.hypot(f.x2-f.x1,f.y2-f.y1)>0.8){ mut(n=>{ n.fasi[fase].frecce.push(f); }); setSel({k:"freccia",id:f.id}); }
+      return;
+    }
+    if(d.mode==="fh" && d.h==="start" && d.mosso){
+      const S0=sRef.current, f=S0.fasi[fase].frecce.find(x=>x.id===d.id);
+      const hit=f && colpisciOggetto(S0,{x:f.x1,y:f.y1},.35);
+      if(hit) mut(n=>{ const g=n.fasi[fase].frecce.find(x=>x.id===d.id), q=n.fasi[fase].pos[hit]; g.da=hit; g.x1=q.x; g.y1=q.y; }, false);
+    }
+  };
+
+  const eliminaSel = () => {
+    if(!sel) return;
+    mut(n=>{
+      if(sel.k==="obj"){
+        n.oggetti=n.oggetti.filter(o=>o.id!==sel.id);
+        n.fasi.forEach(Fx=>{ delete Fx.pos[sel.id]; Fx.frecce.forEach(f=>{ if(f.da===sel.id) f.da=null; }); });
+      } else if(sel.k==="freccia") n.fasi[fase].frecce=n.fasi[fase].frecce.filter(f=>f.id!==sel.id);
+      else if(sel.k==="testo") n.fasi[fase].testi=n.fasi[fase].testi.filter(t=>t.id!==sel.id);
+    });
+    setSel(null);
+  };
+
+  useEffect(()=>{
+    const h=e=>{
+      const tag=(e.target && e.target.tagName)||"";
+      if(["INPUT","TEXTAREA","SELECT"].includes(tag) || esporta) return;
+      if((e.key==="Delete"||e.key==="Backspace") && sel){ e.preventDefault(); eliminaSel(); }
+      else if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==="z"){ e.preventDefault(); annulla(); }
+      else if(e.key==="Escape"){ setTool("sposta"); setSel(null); }
+    };
+    window.addEventListener("keydown",h); return ()=>window.removeEventListener("keydown",h);
+  });
+
+  // fasi
+  const nuovaFase = applica => {
+    mut(n=>{
+      const Fx=n.fasi[fase], pos=clona(Fx.pos);
+      if(applica){
+        const tipoDi=id=>(n.oggetti.find(o=>o.id===id)||{}).tipo;
+        const palle=n.oggetti.filter(o=>o.tipo==="palla").map(o=>o.id);
+        const pallaVicina=(x,y)=>{ let best=null, bd=1.6; palle.forEach(id=>{ const q=Fx.pos[id]; if(!q) return; const d=Math.hypot(q.x-x,q.y-y); if(d<bd){ bd=d; best=id; } }); return best; };
+        // prima i giocatori, poi la palla (così un passaggio si ferma davanti a chi lo riceve)
+        Fx.frecce.forEach(f=>{
+          if((f.tipo==="corsa"||f.tipo==="conduzione") && f.da && tipoDi(f.da)!=="palla") pos[f.da]={x:f.x2,y:f.y2};
+        });
+        const ricevente=(x,y)=>n.oggetti.some(o=>o.tipo!=="palla" && o.tipo!=="cono" && pos[o.id] && Math.hypot(pos[o.id].x-x,pos[o.id].y-y)<1);
+        Fx.frecce.forEach(f=>{
+          const b = (f.da && tipoDi(f.da)==="palla") ? f.da : (f.tipo!=="corsa" ? pallaVicina(f.x1,f.y1) : null);
+          if(!b) return;
+          const [dx,dy]=dirFine(f);
+          if(f.tipo==="conduzione") pos[b]={x:f.x2+dx*.75, y:f.y2+dy*.75};
+          else if(f.tipo==="passaggio" && ricevente(f.x2,f.y2)) pos[b]={x:f.x2-dx*.75, y:f.y2-dy*.75};
+          else pos[b]={x:f.x2, y:f.y2};
+        });
+      }
+      n.fasi.splice(fase+1,0,{id:uid(), nota:"", pos, frecce:applica?[]:clona(Fx.frecce).map(f=>({...f,id:uid()})), testi:applica?[]:clona(Fx.testi).map(t=>({...t,id:uid()}))});
+    });
+    setFase(fase+1); setSel(null);
+  };
+  const eliminaFase = () => {
+    if(S.fasi.length<2) return toast("Serve almeno una fase");
+    if(!confirm(`Elimini la fase ${fase+1}?`)) return;
+    mut(n=>{ n.fasi.splice(fase,1); });
+    setFase(Math.max(0,fase-1)); setSel(null);
+  };
+  const spostaFase = dir => {
+    const j=fase+dir; if(j<0||j>=S.fasi.length) return;
+    mut(n=>{ const [x]=n.fasi.splice(fase,1); n.fasi.splice(j,0,x); });
+    setFase(j);
+  };
+
+  const salvaSchema = async () => {
+    const cur=sRef.current;
+    if(!cur.nome.trim()) return toast("Dai un nome allo schema prima di salvarlo");
+    const {id, ...dati}=clona(cur);
+    delete dati._k; dati.nome=dati.nome.trim(); dati.aggiornatoIl=new Date().toISOString();
+    setSalvando(true);
+    try{
+      const r=await salva(COL.schemi, id, dati);
+      if(!id && r && r.id){ sRef.current={...sRef.current, id:r.id}; setS(sRef.current); }
+      setDirty(false); toast("Schema salvato");
+    }catch(e){ console.error(e); toast(erroreSchemi(e)); }
+    setSalvando(false);
+  };
+  const esci = () => { if(dirty && !confirm("Ci sono modifiche non salvate. Esci lo stesso?")) return; onChiudi(); };
+
+  const giocatori = useMemo(()=>membri.filter(m=>m.tipo==="Giocatore" && m.attivo!==false)
+    .sort((a,b)=>(Number(a.numero)||99)-(Number(b.numero)||99) || (a.cognome||"").localeCompare(b.cognome||"")),[membri]);
+
+  const selObj = sel && sel.k==="obj" ? S.oggetti.find(o=>o.id===sel.id) : null;
+  const selFreccia = sel && sel.k==="freccia" ? F.frecce.find(f=>f.id===sel.id) : null;
+  const selTesto = sel && sel.k==="testo" ? F.testi.find(t=>t.id===sel.id) : null;
+  const setOgg = (k,v) => mut(n=>{ const o=n.oggetti.find(x=>x.id===sel.id); if(o) o[k]=v; });
+  const setFreccia = (k,v) => mut(n=>{ const f=n.fasi[fase].frecce.find(x=>x.id===sel.id); if(f) f[k]=v; });
+  const setTesto = v => mut(n=>{ const t=n.fasi[fase].testi.find(x=>x.id===sel.id); if(t) t.testo=v; }, false);
+
+  const btnTool = (k, contenuto, titolo) => (
+    <button key={k} className={"sc-tool "+(tool===k?"on":"")} title={titolo||""} onClick={()=>{ setTool(k); if(k!=="sposta") setSel(null); }} disabled={play}>{contenuto}</button>
+  );
+
+  return (
+    <div className="section">
+      <div className="card">
+        <div className="card-h">
+          <div style={{display:"flex",gap:8,alignItems:"center",flex:"1 1 320px",minWidth:0}}>
+            <button className="btn ghost sm" onClick={esci}>← Schemi</button>
+            <input value={S.nome} placeholder="Nome dello schema (es. Angolo — blocco sul primo palo)" onChange={e=>setCampo("nome",e.target.value)} style={{fontWeight:600}} />
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            {dirty && <span className="pill p-warn">Non salvato</span>}
+            <button className="btn ghost" onClick={annulla} disabled={!storia.current.length || play} title="Annulla (Ctrl+Z)">↶ Annulla</button>
+            <button className="btn ghost" onClick={()=>setEsporta(true)} disabled={play}>Esporta foto / video</button>
+            <button className="btn" onClick={salvaSchema} disabled={salvando}>{salvando?"Salvataggio…":"Salva"}</button>
+          </div>
+        </div>
+        <div className="card-b" style={{paddingBottom:8}}>
+          <div className="sc-tools">
+            {btnTool("sposta","↖ Seleziona / sposta")}
+            <span className="sc-sep"></span>
+            {STRUMENTI_PEDINE.map(([k,l])=>btnTool(k,<><IconaStrumento k={k} S={S} />{l}</>,"Tocca il campo per aggiungere"))}
+            <span className="sc-sep"></span>
+            {Object.entries(TIPI_FRECCIA).map(([k,v])=>btnTool(k,<><b style={{fontWeight:800}}>{v.simbolo}</b>{v.nome}</>,"Trascina partendo da una pedina"))}
+            {btnTool("testo",<><b style={{fontWeight:800}}>T</b>Testo</>,"Tocca il campo per scrivere")}
+          </div>
+        </div>
+      </div>
+
+      <div className="sc-layout section" style={{marginTop:14}}>
+        <div style={{minWidth:0}}>
+          <div className="card" style={{padding:10}}>
+            <div ref={wrapRef} style={{width:"100%"}}>
+              <canvas ref={cvRef} className="sc-canvas"
+                style={{width:cssW, height:cssH, cursor: tool==="sposta" ? "default" : "crosshair"}}
+                onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} />
+            </div>
+            <div className="sc-fasi">
+              {S.fasi.map((x,i)=>(
+                <button key={x.id} className={"sc-fase "+(i===fase?"on":"")} disabled={play} onClick={()=>{ setFase(i); setSel(null); }}>Fase {i+1}</button>
+              ))}
+              <button className="btn sm" disabled={play} onClick={()=>nuovaFase(true)} title="Nuova fase: i giocatori si spostano sulla punta delle frecce, la palla segue passaggi e conduzioni">+ Fase</button>
+              <button className="btn ghost sm" disabled={play} onClick={()=>nuovaFase(false)} title="Copia identica della fase corrente">Duplica</button>
+              <span style={{flex:1}}></span>
+              <button className="btn ghost sm" disabled={play||fase===0} onClick={()=>spostaFase(-1)} title="Sposta a sinistra">◀</button>
+              <button className="btn ghost sm" disabled={play||fase===S.fasi.length-1} onClick={()=>spostaFase(1)} title="Sposta a destra">▶</button>
+              <button className="btn danger sm" disabled={play||S.fasi.length<2} onClick={eliminaFase}>Elimina fase</button>
+              <button className={"btn sm "+(play?"danger":"")} onClick={()=>setPlay(p=>!p)}>{play?"■ Stop":"▶ Anteprima"}</button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid" style={{alignContent:"start"}}>
+          <div className="card">
+            <div className="card-h"><h3>{selObj?"Pedina":selFreccia?"Freccia":selTesto?"Testo":"Come funziona"}</h3>
+              {sel && <button className="btn danger sm" onClick={eliminaSel}>Elimina</button>}
+            </div>
+            <div className="card-b">
+              {selObj && selObj.tipo!=="palla" && selObj.tipo!=="cono" && <>
+                <div className="row g2">
+                  <Campo label="Numero / sigla"><input maxLength={3} value={selObj.label||""} onChange={e=>setOgg("label",e.target.value)} /></Campo>
+                  <Campo label="Portiere"><label className={"chk "+(selObj.gk?"on":"")} style={{textTransform:"none",letterSpacing:0,fontWeight:500,color:"var(--ink)",marginBottom:0}}><input type="checkbox" checked={!!selObj.gk} onChange={e=>setOgg("gk",e.target.checked)} />Sì</label></Campo>
+                </div>
+                <Campo label="Nome sotto la pedina"><input value={selObj.nome||""} maxLength={16} placeholder="facoltativo" onChange={e=>setOgg("nome",e.target.value)} /></Campo>
+                {selObj.tipo==="casa" && giocatori.length>0 && (
+                  <Campo label="Prendi dalla rosa">
+                    <select value="" onChange={e=>{ const g=giocatori.find(x=>x.id===e.target.value); if(g) mut(n=>{ const o=n.oggetti.find(x=>x.id===sel.id); o.label=String(g.numero||o.label||""); o.nome=g.cognome||""; o.gk = g.ruolo==="Portiere" || o.gk; }); }}>
+                      <option value="">— scegli un giocatore —</option>
+                      {giocatori.map(g=><option key={g.id} value={g.id}>{g.numero?`#${g.numero} `:""}{g.cognome} {g.nome} · {g.ruolo}</option>)}
+                    </select>
+                  </Campo>
+                )}
+                <div className="hint">La pedina esiste in tutte le fasi: spostarla qui cambia solo la fase {fase+1}.</div>
+              </>}
+              {selObj && (selObj.tipo==="palla"||selObj.tipo==="cono") && <div className="hint" style={{marginTop:0}}>Trascinala per spostarla in questa fase.</div>}
+              {selFreccia && <>
+                <Campo label="Tipo">
+                  <select value={selFreccia.tipo} onChange={e=>setFreccia("tipo",e.target.value)}>
+                    {Object.entries(TIPI_FRECCIA).map(([k,v])=><option key={k} value={k}>{v.nome}</option>)}
+                  </select>
+                </Campo>
+                <button className="btn ghost sm" onClick={()=>setFreccia("b",0)} disabled={!selFreccia.b}>Raddrizza</button>
+                <div className="hint">Trascina il pallino arancione per curvarla, quelli bianchi per spostare inizio e punta. {selFreccia.da?"È agganciata a una pedina: segue i suoi spostamenti.":""}</div>
+              </>}
+              {selTesto && <Campo label="Testo"><input value={selTesto.testo} maxLength={40} onChange={e=>setTesto(e.target.value)} /></Campo>}
+              {!sel && (
+                <ol className="sc-help">
+                  <li>Scegli una pedina in alto e tocca il campo per aggiungerla.</li>
+                  <li>Con le frecce trascina <b>partendo da una pedina</b>: la freccia resta agganciata.</li>
+                  <li>Premi <b>+ Fase</b>: i giocatori vanno sulla punta delle frecce e la palla segue passaggi, tiri e conduzioni.</li>
+                  <li>Ripeti per ogni tempo dello schema, poi <b>▶ Anteprima</b> ed <b>Esporta</b>.</li>
+                </ol>
+              )}
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-h"><h3>Fase {fase+1}</h3></div>
+            <div className="card-b">
+              <Campo label="Nota della fase (compare in foto e video)">
+                <textarea rows="2" value={F.nota||""} maxLength={160} placeholder="es. Il 7 batte corto sul 10, il 9 blocca il marcatore"
+                  onChange={e=>{ const v=e.target.value; mut(n=>{ n.fasi[fase].nota=v; }, false); }} />
+              </Campo>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-h"><h3>Impostazioni</h3></div>
+            <div className="card-b">
+              <div className="row g2">
+                <Campo label="Categoria"><select value={S.categoria} onChange={e=>setCampo("categoria",e.target.value)}>{CATEGORIE_SCHEMA.map(c=><option key={c}>{c}</option>)}</select></Campo>
+                <Campo label="Vista"><select value={S.vista} onChange={e=>setCampo("vista",e.target.value)}><option value="intero">Campo intero</option><option value="meta">Metà campo</option></select></Campo>
+                <Campo label="Campo"><select value={S.tema} onChange={e=>setCampo("tema",e.target.value)}>{Object.entries(TEMI_CAMPO).map(([k,v])=><option key={k} value={k}>{v.nome}</option>)}</select></Campo>
+                <Campo label="Velocità video"><select value={S.velocita} onChange={e=>setCampo("velocita",Number(e.target.value))}><option value={0.6}>Lenta</option><option value={1}>Normale</option><option value={1.5}>Veloce</option></select></Campo>
+                <Campo label="Colore nostri"><input type="color" value={S.coloreCasa} onChange={e=>setCampo("coloreCasa",e.target.value)} style={{height:36,padding:3}} /></Campo>
+                <Campo label="Colore avversari"><input type="color" value={S.coloreOspite} onChange={e=>setCampo("coloreOspite",e.target.value)} style={{height:36,padding:3}} /></Campo>
+              </div>
+              <Campo label="Note generali (nel PDF)"><textarea rows="2" value={S.note||""} onChange={e=>setCampo("note",e.target.value)} /></Campo>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {esporta && <EsportaSchema S={S} fase={fase} toast={toast} onChiudi={()=>setEsporta(false)} />}
+    </div>
+  );
+}
+
+function MiniaturaSchema({S}){
+  const ref = React.useRef(null);
+  useEffect(()=>{
+    const cv=ref.current; if(!cv) return;
+    const N=normalizzaSchema(S), V=vistaCampo(N.vista), T=TEMI_CAMPO[N.tema];
+    const dpr=Math.min(2,window.devicePixelRatio||1), w=(cv.clientWidth||320)*dpr, h=w*0.5625;
+    cv.width=Math.round(w); cv.height=Math.round(h);
+    const ctx=cv.getContext("2d");
+    ctx.fillStyle=T.fondo; ctx.fillRect(0,0,cv.width,cv.height);
+    const s=Math.min(cv.width/V.Wm, cv.height/V.Hm);
+    disegnaScena(ctx, N, creaP(V,s,(cv.width-V.Wm*s)/2,(cv.height-V.Hm*s)/2), {fase:0,prog:null,alphaFrecce:1});
+  },[S]);
+  return <canvas ref={ref} style={{width:"100%",aspectRatio:"16 / 9",display:"block",borderRadius:"10px 10px 0 0"}} />;
+}
+
+function Schemi({schemi, membri, toast}){
+  const [aperto,setAperto] = useState(null);
+  const [nuovo,setNuovo] = useState(null);
+  const [cat,setCat] = useState("Tutte");
+  const [q,setQ] = useState("");
+
+  const lista = useMemo(()=>{
+    const t=q.trim().toLowerCase();
+    return schemi
+      .filter(s=>cat==="Tutte" || s.categoria===cat)
+      .filter(s=>!t || `${s.nome||""} ${s.note||""}`.toLowerCase().includes(t))
+      .sort((a,b)=>(a.categoria||"").localeCompare(b.categoria||"") || (a.nome||"").localeCompare(b.nome||""));
+  },[schemi,cat,q]);
+
+  if(aperto) return <EditorSchema key={aperto.id||aperto._k} iniziale={aperto} membri={membri} toast={toast} onChiudi={()=>setAperto(null)} />;
+
+  const crea = () => {
+    const S=creaDaModello(nuovo.modello);
+    S.nome=nuovo.nome.trim(); S.categoria=nuovo.categoria; S._k=uid();
+    setNuovo(null); setAperto(S);
+  };
+  const duplica = async s => {
+    const {id, ...dati}=clona(s);
+    dati.nome=(dati.nome||"Schema")+" (copia)"; delete dati.creatoIl;
+    try{ await salva(COL.schemi,null,dati); toast("Schema duplicato"); }catch(e){ console.error(e); toast(erroreSchemi(e)); }
+  };
+  const rimuovi = async s => {
+    if(!confirm(`Elimini lo schema "${s.nome}"?`)) return;
+    try{ await elimina(COL.schemi,s.id); toast("Schema eliminato"); }catch(e){ console.error(e); toast(erroreSchemi(e)); }
+  };
+  const cats = CATEGORIE_SCHEMA.filter(c=>schemi.some(s=>s.categoria===c));
+
+  return (
+    <div className="section">
+      <div className="card">
+        <div className="card-h">
+          <h3>Schemi <span className="mono" style={{color:"var(--muted)",marginLeft:6}}>{schemi.length}</span></h3>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+            <input placeholder="Cerca…" value={q} onChange={e=>setQ(e.target.value)} style={{width:170}} />
+            <select value={cat} onChange={e=>setCat(e.target.value)} style={{width:"auto"}}>
+              <option>Tutte</option>{cats.map(c=><option key={c}>{c}</option>)}
+            </select>
+            <button className="btn" onClick={()=>setNuovo({nome:"", modello:"angolo", categoria:"Angolo"})}>+ Nuovo schema</button>
+          </div>
+        </div>
+        {schemi.length===0
+          ? <Vuoto titolo="Nessuno schema ancora" testo="Crea il primo angolo o la prima punizione: parti da un modello già impostato e disegna movimenti e passaggi." />
+          : lista.length===0
+            ? <Vuoto titolo="Nessun risultato" testo="Cambia la ricerca o la categoria." />
+            : <div className="card-b"><div className="grid g3">
+                {lista.map(s=>(
+                  <div key={s.id} className="card sc-card">
+                    <div style={{cursor:"pointer"}} onClick={()=>setAperto(s)}><MiniaturaSchema S={s} /></div>
+                    <div style={{padding:"10px 12px"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"flex-start"}}>
+                        <strong style={{fontFamily:"Archivo",fontSize:14,lineHeight:1.3}}>{s.nome||"Senza nome"}</strong>
+                        <span className="pill p-neutral" style={{whiteSpace:"nowrap"}}>{(s.fasi||[]).length} {(s.fasi||[]).length===1?"fase":"fasi"}</span>
+                      </div>
+                      <div style={{fontSize:12,color:"var(--muted)",marginTop:2}}>{s.categoria}</div>
+                      <div style={{display:"flex",gap:6,marginTop:10}}>
+                        <button className="btn sm" onClick={()=>setAperto(s)}>Apri</button>
+                        <button className="btn ghost sm" onClick={()=>duplica(s)}>Duplica</button>
+                        <span style={{flex:1}}></span>
+                        <button className="btn danger sm" onClick={()=>rimuovi(s)}>×</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div></div>}
+      </div>
+
+      {nuovo && (
+        <Modale titolo="Nuovo schema" onChiudi={()=>setNuovo(null)} onSalva={crea} salvaLabel="Crea e apri">
+          <Campo label="Nome"><input autoFocus value={nuovo.nome} placeholder="es. Angolo 1 — blocco e tiro sul secondo palo" onChange={e=>setNuovo(n=>({...n,nome:e.target.value}))} /></Campo>
+          <div className="row g2">
+            <Campo label="Parti da">
+              <select value={nuovo.modello} onChange={e=>{ const m=e.target.value; setNuovo(n=>({...n,modello:m,categoria:MODELLI_SCHEMA[m].categoria})); }}>
+                {Object.entries(MODELLI_SCHEMA).map(([k,v])=><option key={k} value={k}>{v.nome}</option>)}
+              </select>
+            </Campo>
+            <Campo label="Categoria">
+              <select value={nuovo.categoria} onChange={e=>setNuovo(n=>({...n,categoria:e.target.value}))}>{CATEGORIE_SCHEMA.map(c=><option key={c}>{c}</option>)}</select>
+            </Campo>
+          </div>
+          <div className="hint">Il modello mette già in campo pedine e palla nella posizione tipica: poi le sposti come vuoi.</div>
+        </Modale>
+      )}
+    </div>
+  );
+}
+
+
 function Dashboard({membri, documenti, allenamenti, movimenti, vai}){
   const attivi = membri.filter(m=>m.attivo!==false);
   const giocatori = attivi.filter(m=>m.tipo==="Giocatore");
@@ -2708,6 +3800,7 @@ const TAB = [
   ["calendario","Calendario"],
   ["allenamenti","Allenamenti"],
   ["risultati","Risultati"],
+  ["schemi","Schemi"],
   ["documenti","Documenti"],
   ["tesseramenti","Tesseramenti"],
   ["bilancio","Costi e ricavi"],
@@ -2736,6 +3829,7 @@ function App(){
   const [tipiEvento]  = useCollection(COL.tipiEvento, ok);
   const [multe]       = useCollection(COL.multe, ok);
   const [tipiMulta]   = useCollection(COL.tipiMulta, ok);
+  const [schemi]      = useCollection(COL.schemi, ok);
 
   useEffect(()=>{
     const map = {};
@@ -2786,6 +3880,7 @@ function App(){
         {tab==="calendario"   && <Calendario allenamenti={allenamenti} competizioni={competizioni} tipiEvento={tipiEvento} toast={toast} vai={setTab} />}
         {tab==="allenamenti"  && <Allenamenti allenamenti={allenamenti} membri={membri} toast={toast} />}
         {tab==="risultati"    && <Risultati allenamenti={allenamenti} membri={membri} competizioni={competizioni} toast={toast} />}
+        {tab==="schemi"       && <Schemi schemi={schemi} membri={membri} toast={toast} />}
         {tab==="bilancio"     && <Bilancio movimenti={movimenti} membri={membri} toast={toast} />}
         {tab==="multe"        && <Multe multe={multe} tipiMulta={tipiMulta} membri={membri} toast={toast} />}
       </div>
