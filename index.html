@@ -2703,13 +2703,54 @@ function ctrlFreccia(f){
   const nx=-dy/L, ny=dx/L, b=f.b||0;
   return {cx:(f.x1+f.x2)/2+nx*b, cy:(f.y1+f.y2)/2+ny*b, nx, ny};
 }
+/* Percorso della freccia: curva semplice (b) oppure a mano libera (punti intermedi, spline morbida).
+   Restituisce t (0..1, proporzionale alla lunghezza) -> [x,y], con .len = lunghezza in metri */
 function curvaFreccia(f){
+  const punti = Array.isArray(f.punti) ? f.punti : [];
+  if(punti.length){
+    const P=[[f.x1,f.y1], ...punti.map(q=>[q.x,q.y]), [f.x2,f.y2]], pts=[];
+    for(let i=0;i<P.length-1;i++){
+      const p0=P[i-1]||P[i], p1=P[i], p2=P[i+1], p3=P[i+2]||P[i+1];
+      for(let k=0;k<14;k++){
+        const t=k/14, t2=t*t, t3=t2*t;
+        const cr=j=>0.5*((2*p1[j])+(-p0[j]+p2[j])*t+(2*p0[j]-5*p1[j]+4*p2[j]-p3[j])*t2+(-p0[j]+3*p1[j]-3*p2[j]+p3[j])*t3);
+        pts.push([cr(0),cr(1)]);
+      }
+    }
+    pts.push(P[P.length-1]);
+    const cum=[0]; for(let k=1;k<pts.length;k++) cum.push(cum[k-1]+Math.hypot(pts[k][0]-pts[k-1][0],pts[k][1]-pts[k-1][1]));
+    const L=cum[cum.length-1]||1;
+    const fn = t => {
+      const d=Math.max(0,Math.min(1,t))*L;
+      let lo=0, hi=cum.length-1;
+      while(hi-lo>1){ const m=(lo+hi)>>1; if(cum[m]<d) lo=m; else hi=m; }
+      const seg=(cum[hi]-cum[lo])||1, u=(d-cum[lo])/seg;
+      return [pts[lo][0]+(pts[hi][0]-pts[lo][0])*u, pts[lo][1]+(pts[hi][1]-pts[lo][1])*u];
+    };
+    fn.len=L; return fn;
+  }
   const {cx,cy} = ctrlFreccia(f);
-  return t => { const u=1-t; return [u*u*f.x1+2*u*t*cx+t*t*f.x2, u*u*f.y1+2*u*t*cy+t*t*f.y2]; };
+  const fn = t => { const u=1-t; return [u*u*f.x1+2*u*t*cx+t*t*f.x2, u*u*f.y1+2*u*t*cy+t*t*f.y2]; };
+  let L=0, prev=fn(0); for(let k=1;k<=16;k++){ const c=fn(k/16); L+=Math.hypot(c[0]-prev[0],c[1]-prev[1]); prev=c; }
+  fn.len=L||1; return fn;
 }
 function dirFine(f){
-  const {cx,cy} = ctrlFreccia(f);
-  let dx=f.x2-cx, dy=f.y2-cy; const L=Math.hypot(dx,dy)||1; return [dx/L, dy/L];
+  const B=curvaFreccia(f), a=B(Math.max(0,1-0.4/B.len)), b=B(1);
+  let dx=b[0]-a[0], dy=b[1]-a[1]; const L=Math.hypot(dx,dy)||1; return [dx/L, dy/L];
+}
+/* Semplifica il tracciato a mano libera (Ramer-Douglas-Peucker) */
+function semplificaTracciato(pts, eps){
+  if(pts.length<3) return pts;
+  const [ax,ay]=[pts[0].x,pts[0].y], [bx,by]=[pts[pts.length-1].x,pts[pts.length-1].y];
+  const dx=bx-ax, dy=by-ay, L=Math.hypot(dx,dy)||1;
+  let idx=-1, dmax=0;
+  for(let i=1;i<pts.length-1;i++){
+    const d = L>1e-6 ? Math.abs(dy*pts[i].x-dx*pts[i].y+bx*ay-by*ax)/L : Math.hypot(pts[i].x-ax,pts[i].y-ay);
+    if(d>dmax){ dmax=d; idx=i; }
+  }
+  if(dmax<=eps) return [pts[0], pts[pts.length-1]];
+  const a=semplificaTracciato(pts.slice(0,idx+1),eps), b=semplificaTracciato(pts.slice(idx),eps);
+  return a.slice(0,-1).concat(b);
 }
 function coloreTestoSu(hex){
   let h=(hex||"#000").replace("#",""); if(h.length===3) h=h.split("").map(c=>c+c).join("");
@@ -2849,9 +2890,15 @@ function disegnaTesto(ctx, t, P, T, alpha, sel){
   ctx.restore();
 }
 
+function maniglieFreccia(f){
+  const out=[["start",f.x1,f.y1],["end",f.x2,f.y2]];
+  if(Array.isArray(f.punti) && f.punti.length) f.punti.forEach((q,i)=>out.push(["p"+i,q.x,q.y]));
+  else { const m=curvaFreccia(f)(.5); out.push(["mid",m[0],m[1]]); }
+  return out;
+}
 function disegnaManiglie(ctx, f, P){
-  const m=curvaFreccia(f)(.5), r=Math.max(5,.3*P.s);
-  [[f.x1,f.y1,"#FFFFFF"],[f.x2,f.y2,"#FFFFFF"],[m[0],m[1],"#F59E0B"]].forEach(([x,y,c])=>{
+  const r=Math.max(5,.3*P.s);
+  maniglieFreccia(f).map(([h,x,y])=>[x,y,(h==="start"||h==="end")?"#FFFFFF":"#F59E0B"]).forEach(([x,y,c])=>{
     const [px,py]=P.toS(x,y);
     ctx.beginPath(); ctx.arc(px,py,r,0,Math.PI*2); ctx.fillStyle=c; ctx.fill();
     ctx.lineWidth=Math.max(1.5,.07*P.s); ctx.strokeStyle="#B45309"; ctx.stroke();
@@ -2905,7 +2952,7 @@ function disegnaScena(ctx, S, P, stato, extra={}){
   const e = inMoto ? easeIO(stato.prog) : 0;
   const usate = new Set(Object.values(mov).map(m=>m.f.id));
   const aF = inMoto ? 1-stato.prog : (stato.alphaFrecce==null ? 1 : stato.alphaFrecce);
-  const stacco = f => { const L=Math.hypot(f.x2-f.x1,f.y2-f.y1)||1; return f.da ? Math.min(.45,(R_PEDINA+.12)/L) : 0; };
+  const stacco = f => { if(!f.da) return 0; const L=curvaFreccia(f).len||1; return Math.min(.45,(R_PEDINA+.12)/L); };
   (F.frecce||[]).forEach(f=>{
     if(inMoto && usate.has(f.id)) disegnaFreccia(ctx,f,P,T,{t0:Math.min(.97,e+stacco(f)*(1-e)), alpha:1});
     else disegnaFreccia(ctx,f,P,T,{t0:stacco(f), alpha:aF});
@@ -2919,6 +2966,38 @@ function disegnaScena(ctx, S, P, stato, extra={}){
   (F.testi||[]).forEach(t=>disegnaTesto(ctx,t,P,T,aF, extra.sel && extra.sel.k==="testo" && extra.sel.id===t.id));
   if(extra.sel && extra.sel.k==="freccia"){ const f=(F.frecce||[]).find(x=>x.id===extra.sel.id); if(f) disegnaManiglie(ctx,f,P); }
   ctx.restore();
+}
+
+
+/* Posizioni dopo aver "eseguito" le frecce della fase i:
+   giocatori sulla punta di movimenti/conduzioni, palla che segue passaggi, tiri e conduzioni */
+function posDopoFrecce(n, i){
+  const Fx=n.fasi[i], pos=clona(Fx.pos);
+  const tipoDi=id=>(n.oggetti.find(o=>o.id===id)||{}).tipo;
+  const palle=n.oggetti.filter(o=>o.tipo==="palla").map(o=>o.id);
+  const pallaVicina=(x,y)=>{ let best=null, bd=1.6; palle.forEach(id=>{ const q=Fx.pos[id]; if(!q) return; const d=Math.hypot(q.x-x,q.y-y); if(d<bd){ bd=d; best=id; } }); return best; };
+  (Fx.frecce||[]).forEach(f=>{
+    if((f.tipo==="corsa"||f.tipo==="conduzione") && f.da && tipoDi(f.da)!=="palla") pos[f.da]={x:f.x2,y:f.y2};
+  });
+  const ricevente=(x,y)=>n.oggetti.some(o=>o.tipo!=="palla" && o.tipo!=="cono" && pos[o.id] && Math.hypot(pos[o.id].x-x,pos[o.id].y-y)<1);
+  (Fx.frecce||[]).forEach(f=>{
+    const b = (f.da && tipoDi(f.da)==="palla") ? f.da : (f.tipo!=="corsa" ? pallaVicina(f.x1,f.y1) : null);
+    if(!b) return;
+    const [dx,dy]=dirFine(f);
+    if(f.tipo==="conduzione") pos[b]={x:f.x2+dx*.75, y:f.y2+dy*.75};
+    else if(f.tipo==="passaggio" && ricevente(f.x2,f.y2)) pos[b]={x:f.x2-dx*.75, y:f.y2-dy*.75};
+    else pos[b]={x:f.x2, y:f.y2};
+  });
+  return pos;
+}
+/* Per anteprima e video: se l'ultima fase ha ancora frecce, aggiunge una fase finale
+   in cui le frecce vengono eseguite (così si anima anche uno schema a una sola fase) */
+function schemaAnimabile(S){
+  const ult=S.fasi[S.fasi.length-1];
+  if(!ult || !(ult.frecce||[]).length) return S;
+  const n=clona(S);
+  n.fasi.push({id:"auto", nota:ult.nota||"", pos:posDopoFrecce(n, n.fasi.length-1), frecce:[], testi:[]});
+  return n;
 }
 
 /* Sequenza temporale dell'animazione (secondi) */
@@ -2964,7 +3043,7 @@ function righeTesto(ctx, testo, maxW, maxRighe){
   return righe;
 }
 function disegnaFrame(ctx, S, L, stato){
-  const {W,H,V,s,ox,oy,fh}=L, pad=EXP.pad, N=S.fasi.length;
+  const {W,H,V,s,ox,oy,fh}=L, pad=EXP.pad, N=S.fasi.filter(f=>f.id!=="auto").length||1;
   ctx.setTransform(1,0,0,1,0,0);
   ctx.fillStyle="#0F3D3A"; ctx.fillRect(0,0,W,H);
   // intestazione
@@ -3076,12 +3155,13 @@ function EsportaSchema({S, fase, onChiudi, toast}){
     const mime = mimeVideo();
     const c = cvRef.current;
     if(!mime || !c || !c.captureStream){ toast("Questo browser non registra video: usa Chrome, Edge o Safari aggiornati"); return; }
-    if(S.fasi.length<2) toast("Con una sola fase il video è un'immagine ferma: aggiungi almeno una fase");
+    const SA=schemaAnimabile(S);
+    if(SA.fasi.length<2) toast("Non c'è niente da animare: disegna delle frecce o aggiungi una fase");
     setRis(null); setBusy("video"); setProg(0);
     await preparaFont();
-    const L=layoutExport(S); c.width=L.W; c.height=L.H;
-    const ctx=c.getContext("2d"), TL=timelineSchema(S);
-    disegnaFrame(ctx,S,L,TL.at(0));
+    const L=layoutExport(SA); c.width=L.W; c.height=L.H;
+    const ctx=c.getContext("2d"), TL=timelineSchema(SA);
+    disegnaFrame(ctx,SA,L,TL.at(0));
     let rec, stream;
     try{
       stream=c.captureStream(30);
@@ -3094,7 +3174,7 @@ function EsportaSchema({S, fase, onChiudi, toast}){
     await new Promise(res=>{
       const passo=()=>{
         const t=(performance.now()-t0)/1000;
-        disegnaFrame(ctx,S,L,TL.at(Math.min(t,TL.tot)));
+        disegnaFrame(ctx,SA,L,TL.at(Math.min(t,TL.tot)));
         const p=Math.min(1,t/TL.tot), pr=Math.round(p*100);
         if(pr!==ultimo && vivo.current){ ultimo=pr; setProg(p); }
         if(t<TL.tot+0.4 && vivo.current) requestAnimationFrame(passo); else res();
@@ -3123,7 +3203,7 @@ function EsportaSchema({S, fase, onChiudi, toast}){
         <button className="btn" disabled={!!busy} onClick={video}>Video dell'animazione</button>
       </div>
       <div className="hint" style={{marginBottom:12}}>
-        Il video riproduce le {S.fasi.length} fasi in sequenza ({timelineSchema(S).tot.toFixed(0)} secondi circa, velocità dalle impostazioni).
+        Il video riproduce le fasi in sequenza ({timelineSchema(schemaAnimabile(S)).tot.toFixed(0)} secondi circa, velocità dalle impostazioni); le frecce dell'ultima fase vengono eseguite alla fine.
         Durante la registrazione tieni questa finestra aperta e in primo piano.
       </div>
       <canvas ref={cvRef} style={{width:"100%", borderRadius:8, display: busy==="video" ? "block" : "none"}} />
@@ -3228,12 +3308,12 @@ function EditorSchema({iniziale, membri, toast, onChiudi}){
   // anteprima animata
   useEffect(()=>{
     if(!play) return;
-    const TL=timelineSchema(sRef.current), t0=performance.now(); let raf;
+    const SA=schemaAnimabile(sRef.current), TL=timelineSchema(SA), t0=performance.now(); let raf;
     const passo=()=>{
       const cv=cvRef.current; if(!cv) return;
       const t=(performance.now()-t0)/1000, ctx=cv.getContext("2d");
       ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,cv.width,cv.height);
-      disegnaScena(ctx, sRef.current, getP(), TL.at(Math.min(t,TL.tot)));
+      disegnaScena(ctx, SA, getP(), TL.at(Math.min(t,TL.tot)));
       if(t<TL.tot) raf=requestAnimationFrame(passo); else setPlay(false);
     };
     raf=requestAnimationFrame(passo);
@@ -3302,8 +3382,7 @@ function EditorSchema({iniziale, membri, toast, onChiudi}){
       if(sel && sel.k==="freccia"){
         const f=F0.frecce.find(x=>x.id===sel.id);
         if(f){
-          const m=curvaFreccia(f)(.5);
-          for(const [h,x,y] of [["mid",m[0],m[1]],["end",f.x2,f.y2],["start",f.x1,f.y1]])
+          for(const [h,x,y] of maniglieFreccia(f).reverse())
             if(Math.hypot(p.x-x,p.y-y)<tol+.3){ drag.current={mode:"fh",h,id:f.id,snap}; return; }
         }
       }
@@ -3319,8 +3398,8 @@ function EditorSchema({iniziale, membri, toast, onChiudi}){
     if(TIPI_FRECCIA[tool]){
       const da=colpisciOggetto(S0,p,tol);
       const st=da ? F0.pos[da] : p;
-      const t={id:uid(), tipo:tool, x1:st.x, y1:st.y, x2:p.x, y2:p.y, b:0, da:da||null};
-      drag.current={mode:"nuova", temp:t}; setTemp(t);
+      const t={id:uid(), tipo:tool, x1:st.x, y1:st.y, x2:p.x, y2:p.y, b:0, da:da||null, punti:[]};
+      drag.current={mode:"nuova", temp:t, traccia:[{x:st.x,y:st.y}]}; setTemp(t);
       return;
     }
     if(tool==="testo"){
@@ -3331,7 +3410,12 @@ function EditorSchema({iniziale, membri, toast, onChiudi}){
   const onMove = e => {
     const d=drag.current; if(!d) return;
     const p=aMondo(e);
-    if(d.mode==="nuova"){ d.temp={...d.temp, x2:p.x, y2:p.y}; setTemp(d.temp); return; }
+    if(d.mode==="nuova"){
+      const u=d.traccia[d.traccia.length-1];
+      if(Math.hypot(p.x-u.x,p.y-u.y)>0.25) d.traccia.push({x:p.x,y:p.y});
+      const interni=d.traccia.slice(1,-1).filter((q,i)=>i%2===0);
+      d.temp={...d.temp, x2:p.x, y2:p.y, punti:interni}; setTemp(d.temp); return;
+    }
     if(!d.mosso){ d.mosso=true; storia.current.push(d.snap); }
     mut(n=>{
       const Fx=n.fasi[fase];
@@ -3345,10 +3429,12 @@ function EditorSchema({iniziale, membri, toast, onChiudi}){
         const dx=p.x-d.p0.x, dy=p.y-d.p0.y;
         f.x2=d.orig.x2+dx; f.y2=d.orig.y2+dy;
         if(!f.da){ f.x1=d.orig.x1+dx; f.y1=d.orig.y1+dy; }
+        if(Array.isArray(d.orig.punti) && d.orig.punti.length) f.punti=d.orig.punti.map(q=>({x:q.x+dx,y:q.y+dy}));
       } else if(d.mode==="fh"){
         const f=Fx.frecce.find(x=>x.id===d.id); if(!f) return;
         if(d.h==="start"){ f.x1=p.x; f.y1=p.y; f.da=null; }
         else if(d.h==="end"){ f.x2=p.x; f.y2=p.y; }
+        else if(d.h[0]==="p"){ const i=+d.h.slice(1); if(f.punti && f.punti[i]) f.punti[i]={x:p.x,y:p.y}; }
         else { const {nx,ny}=ctrlFreccia(f); const mx=(f.x1+f.x2)/2, my=(f.y1+f.y2)/2; f.b=Math.round(2*((p.x-mx)*nx+(p.y-my)*ny)*100)/100; }
       }
     }, false);
@@ -3357,7 +3443,16 @@ function EditorSchema({iniziale, membri, toast, onChiudi}){
     const d=drag.current; drag.current=null; if(!d) return;
     if(d.mode==="nuova"){
       setTemp(null);
-      const f=d.temp;
+      const pu=aMondo(e);
+      const traccia=[...d.traccia];
+      const u=traccia[traccia.length-1];
+      if(Math.hypot(pu.x-u.x,pu.y-u.y)>0.05) traccia.push({x:pu.x,y:pu.y}); else traccia[traccia.length-1]={x:pu.x,y:pu.y};
+      if(traccia.length<2) traccia.push({x:pu.x,y:pu.y});
+      // mano libera: tieni solo i punti che servono a descrivere la curva (max 8)
+      let eps=0.4, semp=semplificaTracciato(traccia,eps);
+      while(semp.length>10 && eps<3){ eps*=1.5; semp=semplificaTracciato(traccia,eps); }
+      const punti=semp.slice(1,-1).map(q=>({x:Math.round(q.x*100)/100, y:Math.round(q.y*100)/100}));
+      const f={...d.temp, x2:pu.x, y2:pu.y, punti, b:0};
       if(Math.hypot(f.x2-f.x1,f.y2-f.y1)>0.8){ mut(n=>{ n.fasi[fase].frecce.push(f); }); setSel({k:"freccia",id:f.id}); }
       return;
     }
@@ -3394,25 +3489,8 @@ function EditorSchema({iniziale, membri, toast, onChiudi}){
   // fasi
   const nuovaFase = applica => {
     mut(n=>{
-      const Fx=n.fasi[fase], pos=clona(Fx.pos);
-      if(applica){
-        const tipoDi=id=>(n.oggetti.find(o=>o.id===id)||{}).tipo;
-        const palle=n.oggetti.filter(o=>o.tipo==="palla").map(o=>o.id);
-        const pallaVicina=(x,y)=>{ let best=null, bd=1.6; palle.forEach(id=>{ const q=Fx.pos[id]; if(!q) return; const d=Math.hypot(q.x-x,q.y-y); if(d<bd){ bd=d; best=id; } }); return best; };
-        // prima i giocatori, poi la palla (così un passaggio si ferma davanti a chi lo riceve)
-        Fx.frecce.forEach(f=>{
-          if((f.tipo==="corsa"||f.tipo==="conduzione") && f.da && tipoDi(f.da)!=="palla") pos[f.da]={x:f.x2,y:f.y2};
-        });
-        const ricevente=(x,y)=>n.oggetti.some(o=>o.tipo!=="palla" && o.tipo!=="cono" && pos[o.id] && Math.hypot(pos[o.id].x-x,pos[o.id].y-y)<1);
-        Fx.frecce.forEach(f=>{
-          const b = (f.da && tipoDi(f.da)==="palla") ? f.da : (f.tipo!=="corsa" ? pallaVicina(f.x1,f.y1) : null);
-          if(!b) return;
-          const [dx,dy]=dirFine(f);
-          if(f.tipo==="conduzione") pos[b]={x:f.x2+dx*.75, y:f.y2+dy*.75};
-          else if(f.tipo==="passaggio" && ricevente(f.x2,f.y2)) pos[b]={x:f.x2-dx*.75, y:f.y2-dy*.75};
-          else pos[b]={x:f.x2, y:f.y2};
-        });
-      }
+      const Fx=n.fasi[fase];
+      const pos = applica ? posDopoFrecce(n, fase) : clona(Fx.pos);
       n.fasi.splice(fase+1,0,{id:uid(), nota:"", pos, frecce:applica?[]:clona(Fx.frecce).map(f=>({...f,id:uid()})), testi:applica?[]:clona(Fx.testi).map(t=>({...t,id:uid()}))});
     });
     setFase(fase+1); setSel(null);
@@ -3537,14 +3615,17 @@ function EditorSchema({iniziale, membri, toast, onChiudi}){
                     {Object.entries(TIPI_FRECCIA).map(([k,v])=><option key={k} value={k}>{v.nome}</option>)}
                   </select>
                 </Campo>
-                <button className="btn ghost sm" onClick={()=>setFreccia("b",0)} disabled={!selFreccia.b}>Raddrizza</button>
-                <div className="hint">Trascina il pallino arancione per curvarla, quelli bianchi per spostare inizio e punta. {selFreccia.da?"È agganciata a una pedina: segue i suoi spostamenti.":""}</div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  <button className="btn ghost sm" onClick={()=>mut(n=>{ const f=n.fasi[fase].frecce.find(x=>x.id===sel.id); if(f){ f.b=0; f.punti=[]; } })} disabled={!selFreccia.b && !(selFreccia.punti||[]).length}>Raddrizza</button>
+                  {!(selFreccia.punti||[]).length && <button className="btn ghost sm" onClick={()=>mut(n=>{ const f=n.fasi[fase].frecce.find(x=>x.id===sel.id); if(!f) return; const B=curvaFreccia(f); f.punti=[.33,.66].map(t=>{ const [x,y]=B(t); return {x,y}; }); f.b=0; })}>+ Punti di curva</button>}
+                </div>
+                <div className="hint">Puoi disegnarla a mano libera: la freccia segue il percorso del dito o del mouse. Trascina i pallini arancioni per ritoccare la curva, quelli bianchi per spostare inizio e punta. {selFreccia.da?"È agganciata a una pedina: segue i suoi spostamenti.":""}</div>
               </>}
               {selTesto && <Campo label="Testo"><input value={selTesto.testo} maxLength={40} onChange={e=>setTesto(e.target.value)} /></Campo>}
               {!sel && (
                 <ol className="sc-help">
                   <li>Scegli una pedina in alto e tocca il campo per aggiungerla.</li>
-                  <li>Con le frecce trascina <b>partendo da una pedina</b>: la freccia resta agganciata.</li>
+                  <li>Con le frecce trascina <b>partendo da una pedina</b>: la freccia resta agganciata e segue il percorso che disegni, anche curvo.</li>
                   <li>Premi <b>+ Fase</b>: i giocatori vanno sulla punta delle frecce e la palla segue passaggi, tiri e conduzioni.</li>
                   <li>Ripeti per ogni tempo dello schema, poi <b>▶ Anteprima</b> ed <b>Esporta</b>.</li>
                 </ol>
