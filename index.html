@@ -391,6 +391,11 @@ const nomeMese = k => {
 };
 const cfValido = cf => /^[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]$/i.test((cf||"").trim());
 const uid = () => Math.random().toString(36).slice(2,10);
+/* Ordine alfabetico per cognome, poi nome (ignora maiuscole e accenti) */
+const ordineAlfabetico = (a,b) =>
+  (a.cognome||"").localeCompare(b.cognome||"","it",{sensitivity:"base"}) ||
+  (a.nome||"").localeCompare(b.nome||"","it",{sensitivity:"base"});
+const inOrdine = arr => [...(arr||[])].sort(ordineAlfabetico);
 
 function scaricaCSV(righe, nome){
   const csv = righe.map(r => r.map(c => `"${String(c ?? "").replace(/"/g,'""')}"`).join(";")).join("\n");
@@ -703,14 +708,7 @@ function Rosa({membri, toast}){
       .filter(m => !q || (`${m.nome} ${m.cognome} ${m.ruolo||""} ${m.codiceFiscale||""}`).toLowerCase().includes(q))
       .sort((a,b)=>{
         if(a.tipo !== b.tipo) return a.tipo==="Giocatore" ? -1 : 1;
-        if(a.tipo==="Giocatore"){
-          const r = rangoRuolo(a.ruolo) - rangoRuolo(b.ruolo);
-          if(r !== 0) return r;
-          const na = a.numero===""||a.numero==null ? 999 : Number(a.numero);
-          const nb = b.numero===""||b.numero==null ? 999 : Number(b.numero);
-          if(na !== nb) return na - nb;
-        }
-        return (a.cognome||"").localeCompare(b.cognome||"");
+        return ordineAlfabetico(a,b);
       });
   },[membri,f,tipo,soloAttivi]);
 
@@ -1165,7 +1163,7 @@ function Documenti({documenti, membri, toast}){
             <Campo label="Intestatario">
               <select value={modale.membroId} onChange={e=>set("membroId",e.target.value)}>
                 <option value="">Società (nessuna persona)</option>
-                {membri.map(m=><option key={m.id} value={m.id}>{m.cognome} {m.nome}</option>)}
+                {inOrdine(membri).map(m=><option key={m.id} value={m.id}>{m.cognome} {m.nome}</option>)}
               </select>
             </Campo>
           </div>
@@ -1297,7 +1295,7 @@ function Allenamenti({allenamenti, membri, toast}){
   const [presenze,setPresenze] = useState(null);
 
   const giocatori = membri.filter(m=>m.attivo!==false && m.tipo==="Giocatore")
-    .sort((a,b)=>(a.cognome||"").localeCompare(b.cognome||""));
+    .sort(ordineAlfabetico);
 
   // Allenamenti (comportamento) + eventi generici tipo riunione; partite/amichevoli stanno in Calendario/Risultati
   const lista = useMemo(()=>[...allenamenti]
@@ -1798,7 +1796,7 @@ function Risultati({allenamenti, membri, competizioni, toast}){
   const [modale,setModale] = useState(null);
   const [gestioneComp,setGestioneComp] = useState(false);
 
-  const giocatori = membri.filter(m=>m.tipo==="Giocatore").sort((a,b)=>(a.cognome||"").localeCompare(b.cognome||""));
+  const giocatori = membri.filter(m=>m.tipo==="Giocatore").sort(ordineAlfabetico);
   const nomeG = id => { const m=membri.find(x=>x.id===id); return m?`${m.cognome} ${m.nome}`:"—"; };
 
   const partite = useMemo(()=>allenamenti.filter(e=>isMatch(e.tipo))
@@ -2229,7 +2227,7 @@ function Bilancio({movimenti, membri, toast}){
             <Campo label="Persona collegata (opzionale)">
               <select value={modale.membroId} onChange={e=>set("membroId",e.target.value)}>
                 <option value="">Nessuna</option>
-                {membri.map(m=><option key={m.id} value={m.id}>{m.cognome} {m.nome}</option>)}
+                {inOrdine(membri).map(m=><option key={m.id} value={m.id}>{m.cognome} {m.nome}</option>)}
               </select>
             </Campo>
             {modale.verso==="Entrata" && (
@@ -2279,7 +2277,7 @@ const causaleMulta = m => (m.voci||[]).map(v=>`${v.nome||"—"}${qtaVoce(v)>1?` 
 /* Opzioni della rosa raggruppate per giocatori e dirigenti */
 function OpzioniPersone({membri, corrente, tutti}){
   const vis = membri.filter(m => tutti || m.attivo !== false || m.id === corrente);
-  const ord = arr => [...arr].sort((a,b)=>(a.cognome||"").localeCompare(b.cognome||""));
+  const ord = arr => [...arr].sort(ordineAlfabetico);
   const g = ord(vis.filter(m=>m.tipo==="Giocatore"));
   const d = ord(vis.filter(m=>m.tipo!=="Giocatore"));
   return (
