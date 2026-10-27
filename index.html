@@ -368,6 +368,8 @@ function opzioniCompetizioni(competizioni, valoreCorrente){
   return (valoreCorrente && !base.includes(valoreCorrente)) ? [valoreCorrente, ...base] : base;
 }
 const TIPI_CARTELLINO = ["Giallo","Rosso"];
+const MAX_CONVOCATI_DEFAULT = 14;
+const MOTIVI_ESCLUSIONE = ["Infortunato","Squalificato","Lavoro","Motivi personali","Non disponibile","Scelta tecnica"];
 const SQUADRA = "Futsal Fabbrico";
 const CAT_ENTRATA = ["Quote associative","Sponsor","Incassi gara","Contributi","Bar / eventi","Merchandising","Multe","Altro"];
 const CAT_USCITA  = ["Iscrizione campionato","Tesseramenti","Arbitri","Affitto palestra","Abbigliamento / materiale","Trasferte","Ammende / multe","Assicurazione","Cancelleria","Altro"];
@@ -1522,7 +1524,7 @@ function Calendario({allenamenti, competizioni, tipiEvento, toast, vai}){
     setMese(m); setAnno(a); setGiorno(null);
   };
   const vaiOggi = () => { setMese(now.getMonth()); setAnno(now.getFullYear()); setGiorno(stretto ? oggi() : null); };
-  const etichetta = e => isMatch(e.tipo) ? (e.casa?"vs ":"@ ")+(e.avversario||e.tipo) : e.tipo;
+  const etichetta = e => isMatch(e.tipo) ? (e.casa?"vs ":"@ ")+(e.avversario||e.tipo)+((e.convocati||[]).length?" ✓":"") : e.tipo;
   const chiaveMese = `${anno}-${String(mese+1).padStart(2,"0")}`;
   const agenda = useMemo(()=>{
     const lista = giorno ? (perGiorno[giorno]||[]) : allenamenti.filter(e=>(e.data||"").startsWith(chiaveMese));
@@ -1598,7 +1600,7 @@ function Calendario({allenamenti, competizioni, tipiEvento, toast, vai}){
                       <div key={e.id} className="cal-ev" style={{background:coloreEvento(e.tipo)}}
                         onClick={ev=>{ev.stopPropagation(); setModale({...EVENTO_VUOTO, ...e});}}
                         title={`${e.ora||""} ${e.tipo}${isMatch(e.tipo)?" · "+(e.avversario||""):""}`}>
-                        {e.ora?e.ora+" ":""}{isMatch(e.tipo)?(e.casa?"vs ":"@ ")+(e.avversario||e.tipo):e.tipo}
+                        {e.ora?e.ora+" ":""}{isMatch(e.tipo)?(e.casa?"vs ":"@ ")+(e.avversario||e.tipo)+((e.convocati||[]).length?" ✓":""):e.tipo}
                       </div>
                     ))}
                   </div>
@@ -1888,6 +1890,122 @@ function Risultati({allenamenti, membri, competizioni, toast}){
     ], `risultati_${SQUADRA.toLowerCase().replace(/ /g,"_")}.xlsx`);
   };
 
+  // ---- CONVOCAZIONI ----
+  const [conv,setConv] = useState(null);
+  const attivi = giocatori.filter(g=>g.attivo!==false);
+  const giornoEsteso = d => d ? new Date(d+"T00:00:00").toLocaleDateString("it-IT",{weekday:"long",day:"numeric",month:"long"}) : "";
+
+  // massimo convocati: quello usato nell'ultima convocazione salvata, altrimenti 14
+  const ultimoMax = () => {
+    const c = partite.find(p=>p.maxConvocati);
+    return c ? c.maxConvocati : MAX_CONVOCATI_DEFAULT;
+  };
+  const apriConv = p => setConv({
+    ...p,
+    convocati: p.convocati||[], esclusi: p.esclusi||{},
+    ritrovoOra: p.ritrovoOra||"", ritrovoLuogo: p.ritrovoLuogo||"",
+    noteConvocazione: p.noteConvocazione||"", luogo: p.luogo||"",
+    maxConvocati: p.maxConvocati || ultimoMax()
+  });
+  const setC = (k,v)=>setConv(c=>({...c,[k]:v}));
+  const toggleConv = id => setConv(c=>{
+    const dentro = c.convocati.includes(id);
+    const esclusi = {...c.esclusi}; delete esclusi[id];
+    return {...c, esclusi, convocati: dentro ? c.convocati.filter(x=>x!==id) : [...c.convocati, id]};
+  });
+  const setMotivo = (id,motivo) => setConv(c=>{
+    const esclusi = {...c.esclusi};
+    if(motivo) esclusi[id] = motivo; else delete esclusi[id];
+    return {...c, esclusi, convocati: motivo ? c.convocati.filter(x=>x!==id) : c.convocati};
+  });
+
+  // avvisi automatici su un giocatore per una certa partita
+  const avvisiG = (g, p) => {
+    const a = [];
+    const v = statoVisita(g);
+    if(v.cls==="p-bad") a.push("Visita "+v.txt.toLowerCase());
+    else if(g.tipoVisita!=="Non richiesta" && g.scadenzaVisita && g.scadenzaVisita < p.data) a.push("Visita scade prima della gara");
+    if(g.statoTesseramento!=="Tesserato") a.push("Non tesserato");
+    const prec = giocate.filter(x=>x.id!==p.id && x.data < p.data)
+      .sort((x,y)=>(y.data+(y.ora||"")).localeCompare(x.data+(x.ora||"")))[0];
+    if(prec && (prec.cartellini||[]).some(c=>c.giocatoreId===g.id && c.tipo==="Rosso")) a.push("Rosso nella gara precedente");
+    return a;
+  };
+
+  const listaConvocati = c => inOrdine(membri.filter(m=>(c.convocati||[]).includes(m.id)));
+  const testoRitrovo = c => [c.ritrovoOra?"ore "+c.ritrovoOra:"", c.ritrovoLuogo].filter(Boolean).join(" — ");
+  const testoConvocazione = c => {
+    const lista = listaConvocati(c);
+    const r = [];
+    r.push(`*CONVOCAZIONE — ${SQUADRA.toUpperCase()}*`);
+    const comp = [c.competizione, c.giornata].filter(Boolean).join(" · ");
+    if(comp) r.push(comp);
+    r.push(c.casa ? `${SQUADRA} vs ${c.avversario}` : `${c.avversario} vs ${SQUADRA}`);
+    r.push(`📅 ${giornoEsteso(c.data)}${c.ora?` · ore ${c.ora}`:""}`);
+    if(c.luogo) r.push(`📍 ${c.luogo}`);
+    if(testoRitrovo(c)) r.push(`⏰ Ritrovo: ${testoRitrovo(c)}`);
+    r.push("");
+    r.push(`*Convocati (${lista.length})*`);
+    lista.forEach((m,i)=>r.push(`${i+1}. ${m.cognome} ${m.nome}${m.numero?` (#${m.numero})`:""}`));
+    if((c.noteConvocazione||"").trim()){ r.push(""); r.push(c.noteConvocazione.trim()); }
+    return r.join("\n");
+  };
+  const copiaConv = async () => {
+    try{ await navigator.clipboard.writeText(testoConvocazione(conv)); toast("Messaggio copiato: incollalo su WhatsApp"); }
+    catch(e){ toast("Copia non riuscita su questo browser"); }
+  };
+  const whatsappConv = () => window.open("https://wa.me/?text="+encodeURIComponent(testoConvocazione(conv)), "_blank");
+  const pdfConv = () => {
+    const lista = listaConvocati(conv);
+    if(!lista.length) return toast("Nessun convocato");
+    const esclusi = inOrdine(membri.filter(m=>conv.esclusi[m.id]));
+    const info = [
+      `${conv.casa?SQUADRA+" vs "+conv.avversario:conv.avversario+" vs "+SQUADRA}`,
+      `${giornoEsteso(conv.data)}${conv.ora?" · ore "+conv.ora:""}${conv.luogo?" · "+conv.luogo:""}`,
+      testoRitrovo(conv) ? "Ritrovo: "+testoRitrovo(conv) : "",
+      (conv.noteConvocazione||"").trim()
+    ].filter(Boolean).join("\n");
+    const sezioni = [
+      {testo: info},
+      {titolo:`Convocati (${lista.length})`, head:["#","Nominativo","Ruolo","Maglia"],
+       body: lista.map((m,i)=>[String(i+1), `${m.cognome} ${m.nome}`, m.ruolo||"", m.numero||"–"])}
+    ];
+    if(esclusi.length) sezioni.push({titolo:"Non convocati", head:["Nominativo","Motivo"],
+       body: esclusi.map(m=>[`${m.cognome} ${m.nome}`, conv.esclusi[m.id]])});
+    salvaPDF({nomeFile:`convocazione_${conv.data}_${(conv.avversario||"").toLowerCase().replace(/[^a-z0-9]+/g,"_")}.pdf`,
+      titolo:"Convocazione", sottotitolo:[conv.competizione, conv.giornata].filter(Boolean).join(" · "), sezioni});
+  };
+  const salvaConv = async () => {
+    const {convocati, esclusi, ritrovoOra, ritrovoLuogo, noteConvocazione, maxConvocati, luogo} = conv;
+    await salva(COL.allenamenti, conv.id, {
+      convocati, esclusi, ritrovoOra, ritrovoLuogo, noteConvocazione, luogo: luogo||"",
+      maxConvocati: Number(maxConvocati)||MAX_CONVOCATI_DEFAULT
+    });
+    setConv(null); toast("Convocazione salvata");
+  };
+  const btnConv = p => {
+    const n = (p.convocati||[]).length;
+    return <button className={"btn sm "+(n?"":"ghost")} onClick={()=>apriConv(p)}>{n?`Convocati · ${n}`:"Convocati"}</button>;
+  };
+
+  // statistica convocazioni
+  const statConv = useMemo(()=>{
+    const o = {}; let tot = 0;
+    partite.forEach(p=>{ if((p.convocati||[]).length){ tot++; p.convocati.forEach(id=>{ o[id]=(o[id]||0)+1; }); } });
+    return {tot, lista: Object.entries(o).sort((a,b)=>b[1]-a[1] || nomeG(a[0]).localeCompare(nomeG(b[0]),"it"))};
+  },[partite, membri]);
+
+  // menu giocatori nel referto: prima i convocati della partita
+  const opzGioc = m => {
+    const opt = g => <option key={g.id} value={g.id}>{g.cognome} {g.nome}</option>;
+    const c = m.convocati||[];
+    if(!c.length) return giocatori.map(opt);
+    return <>
+      <optgroup label="Convocati">{giocatori.filter(g=>c.includes(g.id)).map(opt)}</optgroup>
+      <optgroup label="Altri">{giocatori.filter(g=>!c.includes(g.id)).map(opt)}</optgroup>
+    </>;
+  };
+
   const Riga = ({p, azione}) => {
     const e = esito(p);
     return (
@@ -1915,7 +2033,7 @@ function Risultati({allenamenti, membri, competizioni, toast}){
         <div className="card" style={{marginBottom:14}}>
           <div className="card-h"><h3>Da compilare</h3></div>
           <div className="tw"><table><tbody>
-            {daCompilare.map(p=><Riga key={p.id} p={p} azione={<button className="btn sm" onClick={()=>apri(p)}>Inserisci risultato</button>} />)}
+            {daCompilare.map(p=><Riga key={p.id} p={p} azione={<>{btnConv(p)}{" "}<button className="btn sm" onClick={()=>apri(p)}>Inserisci risultato</button></>} />)}
           </tbody></table></div>
         </div>
       )}
@@ -1945,7 +2063,7 @@ function Risultati({allenamenti, membri, competizioni, toast}){
                   <td><strong className="mono">{dataIT(p.data)}</strong><div style={{fontSize:11,color:"var(--muted)"}}>{p.competizione}</div></td>
                   <td>{p.casa?"vs ":"@ "}{p.avversario}</td>
                   <td style={{color:"var(--muted)",fontSize:12}}>{p.ora}</td>
-                  <td style={{textAlign:"right"}}><button className="btn ghost sm" onClick={()=>apri(p)}>Inserisci risultato</button></td>
+                  <td style={{textAlign:"right",whiteSpace:"nowrap"}}>{btnConv(p)}{" "}<button className="btn ghost sm" onClick={()=>apri(p)}>Inserisci risultato</button></td>
                 </tr>
               ))}
             </tbody></table></div>
@@ -1972,8 +2090,71 @@ function Risultati({allenamenti, membri, competizioni, toast}){
                   ))}
                 </>}
               </div>}
+          {statConv.tot>0 && (
+            <div className="card-b" style={{borderTop:"1px solid var(--line)"}}>
+              <h4 style={{fontSize:11,textTransform:"uppercase",letterSpacing:".06em",color:"var(--muted)",margin:"0 0 6px"}}>Convocazioni · {statConv.tot} partite</h4>
+              {statConv.lista.map(([id,n])=>(
+                <div key={id} style={{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:13}}>
+                  <span>{nomeG(id)}</span><strong className="mono">{n}/{statConv.tot}</strong>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
+
+      {conv && (()=>{
+        const n = conv.convocati.length;
+        const max = Number(conv.maxConvocati)||MAX_CONVOCATI_DEFAULT;
+        const conAvvisi = attivi.filter(g=>conv.convocati.includes(g.id) && avvisiG(g,conv).length).length;
+        return (
+        <Modale titolo={`Convocati — ${conv.casa?"vs":"@"} ${conv.avversario||""} · ${dataIT(conv.data)}`} onChiudi={()=>setConv(null)} onSalva={salvaConv} larghezza={720}>
+          <div className="row g3">
+            <Campo label="Ritrovo — ora"><input type="time" value={conv.ritrovoOra} onChange={e=>setC("ritrovoOra",e.target.value)} /></Campo>
+            <Campo label="Ritrovo — luogo"><input value={conv.ritrovoLuogo} onChange={e=>setC("ritrovoLuogo",e.target.value)} placeholder="es. palazzetto, piazza…" /></Campo>
+            <Campo label="Massimo convocati"><input type="number" min="1" value={conv.maxConvocati} onChange={e=>setC("maxConvocati",e.target.value)} /></Campo>
+          </div>
+          <Campo label="Luogo partita"><input value={conv.luogo} onChange={e=>setC("luogo",e.target.value)} placeholder="Palestra / indirizzo" /></Campo>
+
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",margin:"4px 0 10px"}}>
+            <span className={"pill "+(n>max?"p-bad":n===max?"p-ok":"p-neutral")}>{n} / {max} convocati</span>
+            {n>max && <span className="pill p-bad">{n-max} oltre il massimo</span>}
+            {conAvvisi>0 && <span className="pill p-warn">{conAvvisi} convocat{conAvvisi===1?"o":"i"} con avvisi</span>}
+          </div>
+          <div className="hint" style={{marginBottom:8}}>Tocca il nome per convocare. Per chi resta a casa puoi scegliere il motivo.</div>
+          <div className="tw" style={{maxHeight:"44vh",overflowY:"auto"}}><table><tbody>
+            {attivi.map(g=>{
+              const on = conv.convocati.includes(g.id);
+              const av = avvisiG(g, conv);
+              return (
+                <tr key={g.id} style={{background: on ? "var(--mint-soft)" : undefined}}>
+                  <td style={{width:30}}><input type="checkbox" checked={on} onChange={()=>toggleConv(g.id)} /></td>
+                  <td onClick={()=>toggleConv(g.id)} style={{cursor:"pointer"}}>
+                    <strong>{g.cognome}</strong> {g.nome}{g.numero ? <span className="mono" style={{color:"var(--muted)"}}> #{g.numero}</span> : null}
+                    <div style={{fontSize:11,color:"var(--muted)"}}>{g.ruolo}</div>
+                    {av.length>0 && <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:3}}>{av.map(a=><span key={a} className="pill p-warn">{a}</span>)}</div>}
+                  </td>
+                  <td style={{width:160}}>
+                    {!on && <select value={conv.esclusi[g.id]||""} onChange={e=>setMotivo(g.id,e.target.value)}>
+                      <option value="">Motivo…</option>{MOTIVI_ESCLUSIONE.map(x=><option key={x}>{x}</option>)}
+                    </select>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody></table></div>
+          {attivi.length===0 && <Vuoto titolo="Nessun giocatore attivo" testo="Aggiungili dalla sezione Rosa." />}
+
+          <div className="divider"></div>
+          <Campo label="Note per i giocatori (finiscono nel messaggio)"><textarea rows={2} value={conv.noteConvocazione} onChange={e=>setC("noteConvocazione",e.target.value)} placeholder="es. portare divisa bianca e documento" /></Campo>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
+            <button className="btn ghost sm" onClick={copiaConv}>Copia messaggio</button>
+            <button className="btn ghost sm" onClick={whatsappConv}>Invia su WhatsApp</button>
+            <button className="btn ghost sm" onClick={pdfConv}>PDF</button>
+          </div>
+          <div className="hint" style={{marginTop:8}}>Messaggio e PDF usano quello che vedi qui; premi Salva per memorizzare la convocazione.</div>
+        </Modale>);
+      })()}
 
       {modale && (
         <Modale titolo={modale.id?"Partita":"Nuova partita"} onChiudi={()=>setModale(null)} onSalva={salvaReferto} salvaLabel={modale.id?"Salva":"Aggiungi"} larghezza={680}>
@@ -2011,10 +2192,10 @@ function Risultati({allenamenti, membri, competizioni, toast}){
           {modale.marcatori.map(m=>(
             <div key={m.id} className="riga4" style={{display:"grid",gridTemplateColumns:"1.4fr 1.4fr 60px auto",gap:7,marginBottom:7,alignItems:"center"}}>
               <select value={m.giocatoreId} onChange={e=>setMarc(m.id,"giocatoreId",e.target.value)}>
-                <option value="">Marcatore…</option>{giocatori.map(g=><option key={g.id} value={g.id}>{g.cognome} {g.nome}</option>)}
+                <option value="">Marcatore…</option>{opzGioc(modale)}
               </select>
               <select value={m.assistId} onChange={e=>setMarc(m.id,"assistId",e.target.value)}>
-                <option value="">Assist (opz.)</option>{giocatori.map(g=><option key={g.id} value={g.id}>{g.cognome} {g.nome}</option>)}
+                <option value="">Assist (opz.)</option>{opzGioc(modale)}
               </select>
               <input type="number" min="0" placeholder="min" value={m.minuto} onChange={e=>setMarc(m.id,"minuto",e.target.value)} />
               <button className="btn danger sm" onClick={()=>delMarc(m.id)}>×</button>
@@ -2030,7 +2211,7 @@ function Risultati({allenamenti, membri, competizioni, toast}){
           {modale.cartellini.map(c=>(
             <div key={c.id} className="riga4" style={{display:"grid",gridTemplateColumns:"1.8fr 1fr 60px auto",gap:7,marginBottom:7,alignItems:"center"}}>
               <select value={c.giocatoreId} onChange={e=>setCart(c.id,"giocatoreId",e.target.value)}>
-                <option value="">Giocatore…</option>{giocatori.map(g=><option key={g.id} value={g.id}>{g.cognome} {g.nome}</option>)}
+                <option value="">Giocatore…</option>{opzGioc(modale)}
               </select>
               <select value={c.tipo} onChange={e=>setCart(c.id,"tipo",e.target.value)}>{TIPI_CARTELLINO.map(t=><option key={t}>{t}</option>)}</select>
               <input type="number" min="0" placeholder="min" value={c.minuto} onChange={e=>setCart(c.id,"minuto",e.target.value)} />
