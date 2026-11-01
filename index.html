@@ -93,19 +93,19 @@ h1,h2,h3,h4{font-family:'Archivo',system-ui,sans-serif;margin:0;letter-spacing:-
 .topbar::before{
   content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:rgba(255,255,255,.18);
 }
-.topbar-in{max-width:1180px;margin:0 auto;padding:18px 16px 0;position:relative;z-index:1}
+.topbar-in{max-width:1180px;margin:0 auto;padding:calc(18px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) 0 calc(16px + env(safe-area-inset-left));position:relative;z-index:1}
 .brand{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
 .brand h1{font-size:22px;font-weight:800;text-transform:uppercase;letter-spacing:.02em}
 .brand-logo{width:30px;height:30px;border-radius:8px;align-self:center;display:block;box-shadow:0 0 0 1px rgba(255,255,255,.28)}
-.agg-bar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:12px;
+.agg-bar{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:12px;
   background:var(--court);color:#fff;padding:10px 12px 10px 16px;border-radius:12px;box-shadow:0 10px 30px -8px rgba(14,26,24,.45);
   font-size:13px;max-width:calc(100vw - 32px)}
 .agg-bar .btn{background:var(--mint);border-color:var(--mint);color:#fff}
 .agg-bar .x{background:none;border:0;color:rgba(255,255,255,.6);font-size:18px;cursor:pointer;padding:0 4px}
-.piede{max-width:1200px;margin:10px auto 28px;padding:0 16px;display:flex;justify-content:center;align-items:center;gap:10px;
+.piede{max-width:1200px;margin:10px auto calc(28px + env(safe-area-inset-bottom));padding:0 16px;display:flex;justify-content:center;align-items:center;gap:10px;
   font-size:11px;color:var(--muted)}
 .brand span{font-size:12px;color:rgba(255,255,255,.6);letter-spacing:.12em;text-transform:uppercase}
-.userbar{position:absolute;right:16px;top:18px;display:flex;align-items:center;gap:10px;font-size:12px;color:rgba(255,255,255,.7);z-index:2}
+.userbar{position:absolute;right:calc(16px + env(safe-area-inset-right));top:calc(18px + env(safe-area-inset-top));display:flex;align-items:center;gap:10px;font-size:12px;color:rgba(255,255,255,.7);z-index:2}
 .tabs{display:flex;gap:2px;margin-top:16px;overflow-x:auto;scrollbar-width:none}
 .tabs::-webkit-scrollbar{display:none}
 .tab{
@@ -309,13 +309,26 @@ tbody tr:hover{background:#FAFBFA}
   .empty{padding:24px 12px}
   .card-h h3{min-width:0}
   .shell{padding:0 10px 80px}
-  .topbar-in{padding-top:12px}
-  .brand h1{font-size:18px}
+  .topbar-in{padding-top:calc(12px + env(safe-area-inset-top));padding-left:calc(12px + env(safe-area-inset-left));padding-right:calc(12px + env(safe-area-inset-right))}
+  .brand{gap:9px;flex-wrap:nowrap;align-items:center;padding-right:64px;min-height:32px}
+  .brand-logo{width:28px;height:28px}
+  .brand h1{font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .brand span{display:none}
-  .userbar{top:10px;right:10px}
+  .userbar{top:calc(12px + env(safe-area-inset-top));right:calc(12px + env(safe-area-inset-right))}
   .userbar span{display:none}
-  .tabs{margin-top:8px}
-  .tab{padding:9px 11px}
+  .tabs{margin:8px -12px 0;padding:0 6px}
+  .tab{padding:10px 11px}
+  .topbar::after{display:none}
+  /* cruscotto: 2 riquadri per riga */
+  .grid.g4{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .stat{padding:12px}
+  .stat .k{font-size:9.5px;letter-spacing:.06em}
+  .stat .v{font-size:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .stat .s{font-size:11px;line-height:1.35}
+  /* titolo e pulsante della scheda sulla stessa riga */
+  .card-h h3{flex:1 1 140px;font-size:12.5px;line-height:1.3}
+  .card-h>.btn{flex:none}
+  .piede{flex-wrap:wrap}
   input,select,textarea{font-size:16px}
   .card-h{padding:12px}
   .card-b{padding:12px}
@@ -336,7 +349,7 @@ const { useState, useEffect, useMemo, useCallback } = React;
    Ad ogni nuova versione cambia APP_VERSION: chi ha l'app aperta
    vede comparire "Nuova versione disponibile" con il pulsante Aggiorna.
    ================================================================== */
-const APP_VERSION = "2026.11.01";
+const APP_VERSION = "2026.11.01.2";
 const LOGO_SVG = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgZmlsbD0iIzBGM0QzQSIvPgo8ZyB0cmFuc2Zvcm09InNrZXdYKC0xMCkgdHJhbnNsYXRlKDcwLDApIj48cmVjdCB4PSIxMTAiIHk9IjEzNiIgd2lkdGg9IjUyLjgwMDAwMDAwMDAwMDAwNCIgaGVpZ2h0PSIyNDAiIGZpbGw9IiNGRkZGRkYiLz48cmVjdCB4PSIxMTAiIHk9IjEzNiIgd2lkdGg9IjE1My42MDAwMDAwMDAwMDAwMiIgaGVpZ2h0PSI1Mi44MDAwMDAwMDAwMDAwMDQiIGZpbGw9IiNGRkZGRkYiLz48cmVjdCB4PSIxMTAiIHk9IjIzNi44IiB3aWR0aD0iMTIwIiBoZWlnaHQ9IjQ4IiBmaWxsPSIjRkZGRkZGIi8+PHJlY3QgeD0iMjUwIiB5PSIxMzYiIHdpZHRoPSI1Mi44MDAwMDAwMDAwMDAwMDQiIGhlaWdodD0iMjQwIiBmaWxsPSIjMkU5RTgyIi8+PHJlY3QgeD0iMjUwIiB5PSIxMzYiIHdpZHRoPSIxNTMuNjAwMDAwMDAwMDAwMDIiIGhlaWdodD0iNTIuODAwMDAwMDAwMDAwMDA0IiBmaWxsPSIjMkU5RTgyIi8+PHJlY3QgeD0iMjUwIiB5PSIyMzYuOCIgd2lkdGg9IjEyMCIgaGVpZ2h0PSI0OCIgZmlsbD0iIzJFOUU4MiIvPjwvZz4KPHJlY3QgeD0iMTEyIiB5PSI0MDIiIHdpZHRoPSIyODgiIGhlaWdodD0iMTQiIHJ4PSI3IiBmaWxsPSIjQzk1MDNGIi8+PC9zdmc+";
 
 async function versionePubblicata(){
