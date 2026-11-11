@@ -102,6 +102,12 @@ h1,h2,h3,h4{font-family:'Archivo',system-ui,sans-serif;margin:0;letter-spacing:-
   font-size:13px;max-width:calc(100vw - 32px)}
 .agg-bar .btn{background:var(--mint);border-color:var(--mint);color:#fff}
 .agg-bar .x{background:none;border:0;color:rgba(255,255,255,.6);font-size:18px;cursor:pointer;padding:0 4px}
+/* Stato del caricamento dati */
+.stato-dati{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;margin:18px 0;padding:14px 16px;
+  background:var(--card,#fff);border:1px solid var(--line);border-radius:12px;font-size:13px;color:var(--muted);text-align:center}
+.stato-dati.err{border-color:var(--coral);color:var(--ink,#0E1A18)}
+.spinner{width:16px;height:16px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--mint);animation:gira .8s linear infinite}
+@keyframes gira{to{transform:rotate(360deg)}}
 /* Visore documenti a schermo intero */
 .visore{position:fixed;inset:0;z-index:80;background:#0B1513;display:flex;flex-direction:column}
 .visore-h{display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) 10px calc(12px + env(safe-area-inset-left));background:var(--court);color:#fff}
@@ -360,7 +366,7 @@ const { useState, useEffect, useMemo, useCallback } = React;
    Ad ogni nuova versione cambia APP_VERSION: chi ha l'app aperta
    vede comparire "Nuova versione disponibile" con il pulsante Aggiorna.
    ================================================================== */
-const APP_VERSION = "2026.11.02";
+const APP_VERSION = "2026.11.11";
 const LOGO_SVG = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgZmlsbD0iIzBGM0QzQSIvPgo8ZyB0cmFuc2Zvcm09InNrZXdYKC0xMCkgdHJhbnNsYXRlKDcwLDApIj48cmVjdCB4PSIxMTAiIHk9IjEzNiIgd2lkdGg9IjUyLjgwMDAwMDAwMDAwMDAwNCIgaGVpZ2h0PSIyNDAiIGZpbGw9IiNGRkZGRkYiLz48cmVjdCB4PSIxMTAiIHk9IjEzNiIgd2lkdGg9IjE1My42MDAwMDAwMDAwMDAwMiIgaGVpZ2h0PSI1Mi44MDAwMDAwMDAwMDAwMDQiIGZpbGw9IiNGRkZGRkYiLz48cmVjdCB4PSIxMTAiIHk9IjIzNi44IiB3aWR0aD0iMTIwIiBoZWlnaHQ9IjQ4IiBmaWxsPSIjRkZGRkZGIi8+PHJlY3QgeD0iMjUwIiB5PSIxMzYiIHdpZHRoPSI1Mi44MDAwMDAwMDAwMDAwMDQiIGhlaWdodD0iMjQwIiBmaWxsPSIjMkU5RTgyIi8+PHJlY3QgeD0iMjUwIiB5PSIxMzYiIHdpZHRoPSIxNTMuNjAwMDAwMDAwMDAwMDIiIGhlaWdodD0iNTIuODAwMDAwMDAwMDAwMDA0IiBmaWxsPSIjMkU5RTgyIi8+PHJlY3QgeD0iMjUwIiB5PSIyMzYuOCIgd2lkdGg9IjEyMCIgaGVpZ2h0PSI0OCIgZmlsbD0iIzJFOUU4MiIvPjwvZz4KPHJlY3QgeD0iMTEyIiB5PSI0MDIiIHdpZHRoPSIyODgiIGhlaWdodD0iMTQiIHJ4PSI3IiBmaWxsPSIjQzk1MDNGIi8+PC9zdmc+";
 
 async function versionePubblicata(){
@@ -422,6 +428,10 @@ let db = null, auth = null;
 if (CONFIGURATA) {
   firebase.initializeApp(FIREBASE_CONFIG);
   db = firebase.firestore();
+  // più affidabile sull'app aperta dalla Home dell'iPhone (connessioni che si bloccano)
+  try{ db.settings({ experimentalAutoDetectLongPolling: true, merge: true }); }catch(e){}
+  // copia locale dei dati: all'apertura si vedono subito gli ultimi dati, anche con rete lenta
+  db.enablePersistence({ synchronizeTabs: true }).catch(e=>console.warn("Cache locale non attiva:", e.code));
   auth = firebase.auth();
 }
 
@@ -702,18 +712,50 @@ async function preparaFile(file){
 /* ==================================================================
    4. HOOK FIRESTORE
    ================================================================== */
+/* Lettura in tempo reale di una raccolta, con ripresa automatica:
+   - se la connessione cade o dà errore riprova da sola dopo pochi secondi;
+   - quando riapri l'app dopo un po' che era in background si ricollega;
+   - finché non arrivano i dati segnala "caricamento" (così non si vedono zeri finti). */
+const RIPROVA_EVENTO = "futsal-riprova";
+function riprovaCaricamento(){ window.dispatchEvent(new Event(RIPROVA_EVENTO)); }
 function useCollection(nome, utenteOk){
   const [dati,setDati] = useState([]);
   const [caricamento,setCaricamento] = useState(true);
+  const [errore,setErrore] = useState(null);
+  const [giro,setGiro] = useState(0);
+  useEffect(()=>{
+    const ricollega = () => setGiro(g=>g+1);
+    let nascostaDa = 0;
+    const vis = () => {
+      if(document.visibilityState==="hidden") nascostaDa = Date.now();
+      else if(nascostaDa && Date.now()-nascostaDa > 60*1000) ricollega();   // in background più di 1 minuto
+    };
+    window.addEventListener(RIPROVA_EVENTO, ricollega);
+    window.addEventListener("online", ricollega);
+    document.addEventListener("visibilitychange", vis);
+    return ()=>{ window.removeEventListener(RIPROVA_EVENTO, ricollega); window.removeEventListener("online", ricollega); document.removeEventListener("visibilitychange", vis); };
+  },[]);
   useEffect(()=>{
     if(!utenteOk || !db){ setCaricamento(false); return; }
-    const off = db.collection(nome).onSnapshot(
-      snap => { setDati(snap.docs.map(d=>({id:d.id, ...d.data()}))); setCaricamento(false); },
-      err => { console.error(nome, err); setCaricamento(false); }
+    setCaricamento(true);
+    let timer = null;
+    const off = db.collection(nome).onSnapshot({includeMetadataChanges:true},
+      snap => {
+        // dalla cache locale vuota non concludo nulla: aspetto la risposta del server
+        if(snap.metadata.fromCache && snap.empty) return;
+        setDati(snap.docs.map(d=>({id:d.id, ...d.data()})));
+        setCaricamento(false); setErrore(null);
+      },
+      err => {
+        console.error(nome, err);
+        setErrore(err.code || "errore");
+        setCaricamento(false);
+        timer = setTimeout(()=>setGiro(g=>g+1), 5000);   // nuovo tentativo tra 5 secondi
+      }
     );
-    return off;
-  },[nome, utenteOk]);
-  return [dati, caricamento];
+    return ()=>{ off(); clearTimeout(timer); };
+  },[nome, utenteOk, giro]);
+  return [dati, caricamento, errore];
 }
 
 const salva = (col, id, dati) =>
@@ -4442,15 +4484,22 @@ function App(){
   },[]);
 
   const ok = !!utente;
-  const [membri]      = useCollection(COL.membri, ok);
-  const [documenti]   = useCollection(COL.documenti, ok);
-  const [allenamenti] = useCollection(COL.allenamenti, ok);
-  const [movimenti]   = useCollection(COL.movimenti, ok);
-  const [competizioni] = useCollection(COL.competizioni, ok);
-  const [tipiEvento]  = useCollection(COL.tipiEvento, ok);
-  const [multe]       = useCollection(COL.multe, ok);
-  const [tipiMulta]   = useCollection(COL.tipiMulta, ok);
-  const [schemi]      = useCollection(COL.schemi, ok);
+  const cMembri = useCollection(COL.membri, ok);
+  const cDocumenti = useCollection(COL.documenti, ok);
+  const cAllenamenti = useCollection(COL.allenamenti, ok);
+  const cMovimenti = useCollection(COL.movimenti, ok);
+  const cCompetizioni = useCollection(COL.competizioni, ok);
+  const cTipiEvento = useCollection(COL.tipiEvento, ok);
+  const cMulte = useCollection(COL.multe, ok);
+  const cTipiMulta = useCollection(COL.tipiMulta, ok);
+  const cSchemi = useCollection(COL.schemi, ok);
+  const [membri] = cMembri, [documenti] = cDocumenti, [allenamenti] = cAllenamenti, [movimenti] = cMovimenti,
+        [competizioni] = cCompetizioni, [tipiEvento] = cTipiEvento, [multe] = cMulte, [tipiMulta] = cTipiMulta, [schemi] = cSchemi;
+  const tutte = [cMembri,cDocumenti,cAllenamenti,cMovimenti,cCompetizioni,cTipiEvento,cMulte,cTipiMulta,cSchemi];
+  const inCaricamento = ok && tutte.some(c=>c[1]);
+  const erroreDati = ok ? (tutte.find(c=>c[2])||[])[2] : null;
+  // i dati "principali" non sono ancora mai arrivati: mostro il caricamento invece degli zeri
+  const datiAssenti = ok && membri.length===0 && (cMembri[1] || !!cMembri[2]);
 
   useEffect(()=>{
     const map = {};
@@ -4495,6 +4544,15 @@ function App(){
       </div>
 
       <div className="shell">
+        {(datiAssenti || erroreDati) && (
+          <div className={"stato-dati"+(erroreDati?" err":"")}>
+            {erroreDati
+              ? <><span><strong>I dati non arrivano.</strong> {erroreDati==="permission-denied" ? "L'accesso è scaduto: premi Esci e rientra." : "Controllo la connessione e riprovo da solo…"}</span>
+                  <button className="btn sm" onClick={riprovaCaricamento}>Riprova ora</button></>
+              : <><span className="spinner"></span><span>Caricamento dati…</span></>}
+          </div>
+        )}
+        {!datiAssenti && <>
         {tab==="dashboard"    && <Dashboard membri={membri} documenti={documenti} allenamenti={allenamenti} movimenti={movimenti} vai={setTab} />}
         {tab==="rosa"         && <Rosa membri={membri} toast={toast} />}
         {tab==="documenti"    && <Documenti documenti={documenti} membri={membri} toast={toast} />}
@@ -4505,6 +4563,7 @@ function App(){
         {tab==="schemi"       && <Schemi schemi={schemi} membri={membri} toast={toast} />}
         {tab==="bilancio"     && <Bilancio movimenti={movimenti} membri={membri} toast={toast} />}
         {tab==="multe"        && <Multe multe={multe} tipiMulta={tipiMulta} membri={membri} toast={toast} />}
+        </>}
       </div>
 
       <div className="piede">
